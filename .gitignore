@@ -1,0 +1,22 @@
+# Generated data — regenerate by running the pipeline
+data/*.csv
+!data/academic_calendar.csv
+models/*.pkl
+outputs/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
