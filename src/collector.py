@@ -5,10 +5,10 @@ Polls the GoBoard public facility-count API every 5 minutes and appends
 occupancy data to ../data/marino_counts.csv.
 
 Features:
-  - Captures an `is_open` flag per location, if present in the API response
-    (checked under a few likely key names since the exact field wasn't
-    confirmed from docs - verify against a raw response and adjust
-    OPEN_FIELD_CANDIDATES below if needed).
+  - Captures an `is_open` flag per location, derived from the confirmed
+    `IsClosed` field in the GoBoard response (inverted: is_open = not IsClosed).
+  - Captures `location_id` (GoBoard's `LocationId`), a stable key that
+    won't break if a location is ever renamed.
   - Logs failed polls to ../data/poll_errors.csv instead of only printing
     them, so gaps in marino_counts.csv can be distinguished from
     "zero occupancy."
@@ -30,9 +30,6 @@ ERROR_LOG_FILE = os.path.join(DATA_DIR, "poll_errors.csv")
 
 POLL_SECONDS = 300  # 5 minutes
 
-# Verify the actual key name in a raw API response and adjust this list if needed.
-OPEN_FIELD_CANDIDATES = ["IsOpen", "LocationOpen", "Open", "Status"]
-
 
 def fetch_data():
     response = requests.get(URL, headers=HEADERS, timeout=15)
@@ -41,13 +38,11 @@ def fetch_data():
 
 
 def extract_is_open(loc: dict):
-    for key in OPEN_FIELD_CANDIDATES:
-        if key in loc:
-            value = loc[key]
-            if isinstance(value, str):
-                return value.strip().lower() in ("open", "true", "1")
-            return bool(value)
-    return None  # unknown - field not found in response
+    """GoBoard returns `IsClosed` (bool); is_open is just the inverse."""
+    is_closed = loc.get("IsClosed")
+    if is_closed is None:
+        return None  # field missing - shouldn't happen, but don't guess
+    return not bool(is_closed)
 
 
 def append_rows(rows):
@@ -62,6 +57,7 @@ def append_rows(rows):
                 "weekday",
                 "facility_name",
                 "location_name",
+                "location_id",
                 "count",
                 "capacity",
                 "percent",
@@ -106,6 +102,7 @@ if __name__ == "__main__":
                     weekday,
                     loc["FacilityName"],
                     loc["LocationName"],
+                    loc.get("LocationId"),
                     count,
                     capacity,
                     round(percent, 2),
