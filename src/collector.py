@@ -19,8 +19,15 @@ import os
 import time
 from datetime import datetime
 import requests
+from dotenv import load_dotenv
 
-URL = "https://goboardapi.azurewebsites.net/api/FacilityCount/GetCountsByAccount?AccountAPIKey=2a2be0d8-df10-4a48-bedd-b3bc0cd628e7"
+load_dotenv()
+
+API_KEY = os.environ.get("GOBOARD_API_KEY")
+if not API_KEY:
+    raise RuntimeError("GOBOARD_API_KEY not set. Add it to your .env file.")
+
+URL = f"https://goboardapi.azurewebsites.net/api/FacilityCount/GetCountsByAccount?AccountAPIKey={API_KEY}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
