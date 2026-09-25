@@ -46,7 +46,7 @@ authenticated endpoints.
 ## Project structure
 
 ```
-gym_predictor/
+GymCast/
 ├── README.md
 ├── requirements.txt
 ├── .gitignore
