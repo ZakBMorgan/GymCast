@@ -14,6 +14,7 @@ Usage (run from src/):
 import json
 import os
 import subprocess
+import sys
 
 from flask import Flask, jsonify
 from flask_cors import CORS
@@ -35,8 +36,11 @@ def get_predictions():
 def refresh():
     # Re-run the pipeline: features -> predict.
     # (Retrain less frequently - e.g. nightly - since training is heavier than inference.)
-    subprocess.run(["python", os.path.join(BASE_DIR, "features.py")], check=True, cwd=BASE_DIR)
-    subprocess.run(["python", os.path.join(BASE_DIR, "predict.py")], check=True, cwd=BASE_DIR)
+    # sys.executable, not "python": inside a venv (or on a machine where only
+    # python3 is on PATH) a bare "python" either misses or resolves to a
+    # different interpreter without the project's dependencies.
+    for step in ("features.py", "predict.py"):
+        subprocess.run([sys.executable, os.path.join(BASE_DIR, step)], check=True, cwd=BASE_DIR)
     return jsonify({"status": "refreshed"})
 
 

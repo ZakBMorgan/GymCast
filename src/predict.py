@@ -1,93 +1,102 @@
 """
 predict.py
 
-Generates near-future occupancy predictions per location and writes them
-to a JSON file your website can fetch directly (e.g. served as a static
-file, or returned from a small Flask endpoint - see serve.py).
+Generates near-future occupancy predictions per location and writes them to a
+JSON file the website can fetch directly (as a static file, or via serve.py).
 
-This does NOT need live sensor data to predict ahead: it uses the most
-recent known counts (count_1hr_ago, rolling_avg_3hr, etc.) plus the
-calendar-based features for each future hour, since those are known in
-advance regardless of what happens between now and then.
+Inference works by extending each location's hourly panel with empty future
+hours and running it through the same build_supervised_frame() that training
+uses, then keeping the rows whose origin is the latest observed hour. Sharing
+that one code path is the point: the alternative - hand-assembling future rows
+here - is how a serving frame ends up holding a slightly different feature than
+the one the model was fit on, with nothing to raise an error about it.
 
 Usage (run from src/, defaults point at ../models, ../data, ../outputs):
     python predict.py
     python predict.py --model ../models/model.pkl --features ../data/features.csv \
-                       --hours-ahead 24 --output ../outputs/predictions.json
+                      --hours-ahead 24 --output ../outputs/predictions.json
 """
 
 import argparse
 import json
-import pickle
-from datetime import timedelta
 
-import numpy as np
 import pandas as pd
 
-from features import add_cyclical_time_features, add_academic_calendar
+from features import (
+    add_academic_calendar,
+    add_cyclical_time_features,
+    build_supervised_frame,
+)
+from train import load_bundle, predict_with
 
 
-def load_model(path: str):
-    with open(path, "rb") as f:
-        return pickle.load(f)
+def latest_origins(panel: pd.DataFrame) -> pd.Series:
+    """
+    Last hour per location with an *observed* count.
+
+    Not simply the last row: regularize_hourly pads the panel to a continuous
+    hourly index, so a stalled collector leaves trailing NaN rows. Forecasting
+    from one of those would mean seeding every lag feature with NaN.
+    """
+    observed = panel.dropna(subset=["count"])
+    if observed.empty:
+        raise ValueError("panel has no observed counts - has collector.py been running?")
+    return observed.groupby("location_name")["hour_bucket"].max()
 
 
-def latest_known_state(features_df: pd.DataFrame) -> pd.DataFrame:
-    """Grab each location's most recent row to seed lag features."""
-    idx = features_df.groupby("location_name")["hour_bucket"].idxmax()
-    return features_df.loc[idx].set_index("location_name")
+def extend_panel(panel: pd.DataFrame, origins: pd.Series, hours_ahead: int,
+                 calendar_path: str | None) -> pd.DataFrame:
+    """Append empty future hours so the supervised frame has target rows to score."""
+    frames = []
+    for loc, g in panel.groupby("location_name", sort=False):
+        g = g.sort_values("hour_bucket")
+        start = origins[loc] + pd.Timedelta(hours=1)
+        future = pd.date_range(start, periods=hours_ahead, freq="h")
+        future = future[future > g["hour_bucket"].max()]
+
+        pad = pd.DataFrame({"hour_bucket": future})
+        pad["location_name"] = loc
+        if "capacity" in g.columns:
+            pad["capacity"] = g["capacity"].ffill().iloc[-1] if len(g) else None
+        frames.append(pd.concat([g, pad], ignore_index=True))
+
+    out = pd.concat(frames, ignore_index=True)
+    # Calendar context for the padded hours is knowable in advance, so it gets
+    # recomputed over the extended index rather than carried forward.
+    out = add_cyclical_time_features(out)
+    out = add_academic_calendar(out, calendar_path)
+    return out
 
 
-def build_future_rows(latest: pd.DataFrame, hours_ahead: int, calendar_path: str | None) -> pd.DataFrame:
-    rows = []
-    for loc, row in latest.iterrows():
-        start = row["hour_bucket"]
-        for h in range(1, hours_ahead + 1):
-            future_time = start + timedelta(hours=h)
-            rows.append({
-                "location_name": loc,
-                "hour_bucket": future_time,
-                # Lag features: for h=1 we know the real latest count;
-                # beyond that we fall back to the same rolling average
-                # (a simple assumption - refine by chaining predictions if needed).
-                "count_1hr_ago": row["count"] if h == 1 else row["rolling_avg_3hr"],
-                "count_24hr_ago": row.get("count_24hr_ago", np.nan),
-                "count_168hr_ago": row.get("count_168hr_ago", np.nan),
-                "rolling_avg_3hr": row["rolling_avg_3hr"],
-                "campus_total_count_same_hour": row.get("campus_total_count_same_hour", np.nan),
-            })
-    future = pd.DataFrame(rows)
-    future = add_cyclical_time_features(future)
-    future = add_academic_calendar(future, calendar_path)
-    return future
+def forecast(bundle: dict, panel: pd.DataFrame, hours_ahead: int,
+             calendar_path: str | None) -> pd.DataFrame:
+    origins = latest_origins(panel)
+    extended = extend_panel(panel, origins, hours_ahead, calendar_path)
+
+    frame = build_supervised_frame(extended, horizons=range(1, hours_ahead + 1))
+    frame["_origin"] = frame["location_name"].map(origins)
+    frame = frame[frame["origin_bucket"] == frame["_origin"]].copy()
+
+    trained = bundle.get("horizons") or []
+    if trained and hours_ahead > max(trained):
+        print(f"WARNING: forecasting {hours_ahead}h ahead from a model trained on "
+              f"horizons up to {max(trained)}h. Retrain with "
+              f"--max-horizon {hours_ahead} for honest long-range numbers.")
+
+    frame["predicted_count"] = predict_with(bundle, frame)
+    return frame.sort_values(["location_name", "hour_bucket"])
 
 
-def predict(model_bundle, future_df: pd.DataFrame) -> pd.DataFrame:
-    model = model_bundle["model"]
-    feature_cols = model_bundle["feature_cols"]
-
-    for col in ["semester_phase", "location_name"]:
-        if col in future_df.columns:
-            future_df[col] = future_df[col].astype("category")
-
-    X = future_df[feature_cols]
-    if not model_bundle["used_lgb"]:
-        X = pd.get_dummies(X, columns=[c for c in ["semester_phase", "location_name"] if c in feature_cols])
-
-    future_df["predicted_count"] = model.predict(X)
-    future_df["predicted_count"] = future_df["predicted_count"].clip(lower=0)
-    return future_df
-
-
-def to_website_json(future_df: pd.DataFrame, capacity_lookup: dict) -> dict:
+def to_website_json(frame: pd.DataFrame, capacity_lookup: dict) -> dict:
     output = {}
-    for loc, group in future_df.groupby("location_name"):
+    for loc, group in frame.groupby("location_name"):
         capacity = capacity_lookup.get(loc)
         entries = []
-        for _, row in group.sort_values("hour_bucket").iterrows():
+        for _, row in group.iterrows():
             pct = (row["predicted_count"] / capacity * 100) if capacity else None
             entries.append({
                 "time": row["hour_bucket"].isoformat(),
+                "horizon_hours": int(row["horizon"]),
                 "predicted_count": round(float(row["predicted_count"]), 1),
                 "predicted_percent": round(pct, 1) if pct is not None else None,
             })
@@ -95,21 +104,30 @@ def to_website_json(future_df: pd.DataFrame, capacity_lookup: dict) -> dict:
     return output
 
 
-def main(model_path: str, features_path: str, hours_ahead: int, output_path: str, calendar_path: str | None):
-    model_bundle = load_model(model_path)
-    features_df = pd.read_csv(features_path, parse_dates=["hour_bucket"])
+def main(model_path: str, features_path: str, hours_ahead: int, output_path: str,
+         calendar_path: str | None):
+    bundle = load_bundle(model_path)
+    panel = pd.read_csv(features_path, parse_dates=["hour_bucket"])
 
-    latest = latest_known_state(features_df)
-    capacity_lookup = latest["capacity"].to_dict()
+    frame = forecast(bundle, panel, hours_ahead, calendar_path)
 
-    future = build_future_rows(latest, hours_ahead, calendar_path)
-    future = predict(model_bundle, future)
+    capacity_lookup = (
+        panel.dropna(subset=["capacity"])
+        .groupby("location_name")["capacity"].last().to_dict()
+        if "capacity" in panel.columns else {}
+    )
+    result = to_website_json(frame, capacity_lookup)
 
-    result = to_website_json(future, capacity_lookup)
+    origins = {loc: str(t) for loc, t in latest_origins(panel).items()}
     with open(output_path, "w") as f:
-        json.dump({"generated_at": pd.Timestamp.now().isoformat(), "locations": result}, f, indent=2)
+        json.dump({
+            "generated_at": pd.Timestamp.now().isoformat(),
+            "forecast_origin": origins,
+            "model_trained_through": str(bundle.get("trained_through")),
+            "locations": result,
+        }, f, indent=2)
 
-    print(f"Wrote predictions for {len(capacity_lookup)} locations to {output_path}")
+    print(f"Wrote {hours_ahead}h predictions for {len(result)} locations to {output_path}")
 
 
 if __name__ == "__main__":

@@ -1,11 +1,22 @@
 """
 features.py
 
-Turns the raw collector output (marino_counts.csv) into a model-ready
-feature table. One row per (location, timestamp-bucketed-to-hour) with:
-  - cyclical time encodings
-  - lag features (same hour yesterday / last week, rolling averages)
-  - academic calendar context (optional, via a manual csv you maintain)
+Turns raw collector output (marino_counts.csv) into two things:
+
+  1. An **hourly panel** - one row per (location, hour), regularized onto a
+     continuous hourly index, holding the observed count plus context that is
+     genuinely knowable ahead of time (calendar, capacity). This is what gets
+     written to features.csv.
+
+  2. A **supervised frame**, built on demand by build_supervised_frame() - one
+     row per (location, forecast origin, horizon). Every feature on such a row
+     is observable at the origin, so what the model trains on is exactly what
+     predict.py can assemble at inference time.
+
+Why the two-stage split: a feature time-aligned with the target (say, the
+campus-wide count during the target hour) is both unknowable when forecasting
+*and* a partial copy of the label. Keeping lag construction out of the panel
+and parameterizing it by horizon makes that class of mistake hard to write.
 
 Usage (run from src/, defaults point at ../data):
     python features.py
@@ -21,6 +32,26 @@ import pandas as pd
 
 ACADEMIC_CALENDAR_COLUMNS = ["date", "semester_phase"]
 # semester_phase examples: "regular", "dead_week", "finals", "break", "summer_session"
+
+TARGET_COL = "count"
+
+# Model inputs. Each one is observable at the forecast origin - see the
+# per-column comments in build_supervised_frame() for the argument.
+FEATURE_COLS = [
+    "horizon",
+    "hour_sin", "hour_cos", "weekday_sin", "weekday_cos", "is_weekend",
+    "count_at_origin", "count_origin_prev", "rolling_3h_at_origin",
+    "count_24h_before_target", "count_168h_before_target",
+    "campus_others_mean_at_origin",
+]
+CATEGORICAL_COLS = ["semester_phase", "location_name"]
+
+# Carried through the supervised frame for filtering and reporting, never fed
+# to the model. is_open in particular describes the target hour, so using it as
+# a feature would reintroduce a same-hour leak.
+PASSTHROUGH_COLS = ["capacity", "is_open"]
+
+DEFAULT_HORIZONS = tuple(range(1, 25))
 
 
 def load_raw(path: str) -> pd.DataFrame:
@@ -54,6 +85,33 @@ def bucket_to_hour(df: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
+def regularize_hourly(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Reindex each location onto a gap-free hourly range.
+
+    Every lag downstream is expressed as shift(N) rows, so a missing poll would
+    otherwise silently slide the alignment - an hour of downtime would turn
+    "same hour last week" into "one hour off, last week". Missing counts become
+    NaN, which the model treats as missing rather than as zero occupancy.
+    Idempotent, so it is safe to call again on an already-regular panel.
+    """
+    frames = []
+    for loc, g in df.groupby("location_name", sort=False):
+        g = g.set_index("hour_bucket").sort_index()
+        if not g.index.is_unique:
+            g = g[~g.index.duplicated(keep="last")]
+
+        full_range = pd.date_range(g.index.min(), g.index.max(), freq="h")
+        g = g.reindex(full_range)
+        g["location_name"] = loc
+        if "capacity" in g.columns:
+            g["capacity"] = g["capacity"].ffill().bfill()
+
+        frames.append(g.rename_axis("hour_bucket").reset_index())
+
+    return pd.concat(frames, ignore_index=True)
+
+
 def add_cyclical_time_features(df: pd.DataFrame, time_col: str = "hour_bucket") -> pd.DataFrame:
     dt = df[time_col].dt
     df["hour"] = dt.hour
@@ -68,13 +126,17 @@ def add_cyclical_time_features(df: pd.DataFrame, time_col: str = "hour_bucket") 
 
 
 def add_academic_calendar(df: pd.DataFrame, calendar_path: str | None) -> pd.DataFrame:
+    # Drop any prior semester_phase so re-running on an enriched panel replaces
+    # the column instead of producing semester_phase_x / semester_phase_y.
+    df = df.drop(columns=["semester_phase"], errors="ignore")
+
     if not calendar_path or not os.path.exists(calendar_path):
         df["semester_phase"] = "unknown"
         return df
 
     cal = pd.read_csv(calendar_path, parse_dates=["date"])
     if cal.empty:
-        # Committed template with only a header row — nothing to join on.
+        # Committed template with only a header row - nothing to join on.
         df["semester_phase"] = "unknown"
         return df
 
@@ -85,68 +147,108 @@ def add_academic_calendar(df: pd.DataFrame, calendar_path: str | None) -> pd.Dat
     return df
 
 
-def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_campus_context(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Adds, per location:
-      - count_1hr_ago
-      - count_24hr_ago   (same hour yesterday)
-      - count_168hr_ago  (same hour, same weekday, last week)
-      - rolling_avg_3hr  (trailing 3-hour smoothed average, excluding current row)
-    All computed per-location on an hourly-regularized index so gaps
-    in polling don't silently shift the lag alignment.
+    Mean count across *other* locations during the same hour.
+
+    Two deliberate choices:
+      - Excludes the row's own count. A plain campus-wide sum puts the target
+        inside its own feature, which the model will happily exploit.
+      - A mean over reporting peers rather than a sum, so the value doesn't
+        lurch when a location drops out of the feed.
+
+    Still same-hour, so it is unknowable at forecast time on its own.
+    build_supervised_frame is the only consumer and it shifts the column back
+    to the origin before the model ever sees it.
     """
-    out_frames = []
-    for loc, g in df.groupby("location_name"):
-        g = g.set_index("hour_bucket").sort_index()
+    grp = df.groupby("hour_bucket")[TARGET_COL]
+    total = grp.transform("sum")            # skips NaN
+    n_reporting = grp.transform("count")    # non-NaN only
 
-        # Reindex to a full hourly range so lag-by-N-hours is always correct,
-        # even if polling had gaps. Missing counts become NaN (handled downstream).
-        full_range = pd.date_range(g.index.min(), g.index.max(), freq="h")
-        g = g.reindex(full_range)
-        g["location_name"] = loc
+    own = df[TARGET_COL].fillna(0)
+    own_reporting = df[TARGET_COL].notna().astype(int)
+    others_n = (n_reporting - own_reporting).replace(0, np.nan)
 
-        g["count_1hr_ago"] = g["count"].shift(1)
-        g["count_24hr_ago"] = g["count"].shift(24)
-        g["count_168hr_ago"] = g["count"].shift(168)
-        g["rolling_avg_3hr"] = g["count"].shift(1).rolling(window=3, min_periods=1).mean()
-
-        g = g.rename_axis("hour_bucket").reset_index()
-        out_frames.append(g)
-
-    result = pd.concat(out_frames, ignore_index=True)
-    return result
-
-
-def add_cross_location_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds campus_total_count_same_hour: sum of all locations' counts at that
-    hour_bucket, useful as an "is today unusually busy overall" signal.
-    """
-    totals = (
-        df.groupby("hour_bucket")["count"]
-        .sum()
-        .rename("campus_total_count_same_hour")
-        .reset_index()
-    )
-    df = df.merge(totals, on="hour_bucket", how="left")
+    df["campus_others_mean"] = (total - own) / others_n
     return df
 
 
-def build_features(input_path: str, output_path: str, calendar_path: str | None = None):
+def build_supervised_frame(panel: pd.DataFrame, horizons=DEFAULT_HORIZONS) -> pd.DataFrame:
+    """
+    Expand the hourly panel into one row per (location, origin, horizon).
+
+    A row's target is the count at hour `t`; its origin is `t - horizon`, the
+    last hour whose observations you would actually hold when making that
+    forecast. Every feature is therefore built from a shift of at least
+    `horizon` rows.
+
+    Rows whose target is unknown (NaN count) are kept - train/evaluate drop
+    them, and predict.py depends on them to score future hours.
+    """
+    horizons = sorted({int(h) for h in horizons})
+    if not horizons or horizons[0] < 1:
+        raise ValueError("horizons must be positive integers (1 = next hour)")
+
+    panel = regularize_hourly(panel)
+    frames = []
+
+    for loc, g in panel.groupby("location_name", sort=False):
+        g = g.set_index("hour_bucket").sort_index()
+        count = g[TARGET_COL]
+        others = (
+            g["campus_others_mean"] if "campus_others_mean" in g.columns
+            else pd.Series(np.nan, index=g.index)
+        )
+
+        for h in horizons:
+            f = pd.DataFrame(index=g.index)
+            f["location_name"] = loc
+            f["horizon"] = h
+            f["origin_bucket"] = g.index - pd.Timedelta(hours=h)
+            f[TARGET_COL] = count
+
+            # --- everything below is observed at or before t - h ---
+            f["count_at_origin"] = count.shift(h)             # count[t-h]
+            f["count_origin_prev"] = count.shift(h + 1)       # count[t-h-1]
+            # trailing 3h mean ending at the origin: count[t-h-2 .. t-h]
+            f["rolling_3h_at_origin"] = count.shift(h).rolling(3, min_periods=1).mean()
+            # same hour yesterday / last week, but only while those fall at or
+            # before the origin. Past the horizon they would be future reads.
+            f["count_24h_before_target"] = count.shift(24) if h <= 24 else np.nan
+            f["count_168h_before_target"] = count.shift(168) if h <= 168 else np.nan
+            f["campus_others_mean_at_origin"] = others.shift(h)
+
+            for col in PASSTHROUGH_COLS + ["semester_phase"]:
+                if col in g.columns:
+                    f[col] = g[col]
+
+            frames.append(f.rename_axis("hour_bucket").reset_index())
+
+    out = pd.concat(frames, ignore_index=True)
+    out = add_cyclical_time_features(out)
+    return out.sort_values(["location_name", "hour_bucket", "horizon"]).reset_index(drop=True)
+
+
+def build_panel(input_path: str, output_path: str, calendar_path: str | None = None) -> pd.DataFrame:
     raw = load_raw(input_path)
     hourly = bucket_to_hour(raw)
+    hourly = regularize_hourly(hourly)
     hourly = add_cyclical_time_features(hourly)
     hourly = add_academic_calendar(hourly, calendar_path)
-    hourly = add_lag_features(hourly)
-    hourly = add_cross_location_features(hourly)
+    hourly = add_campus_context(hourly)
 
-    # Recompute cyclical/calendar cols after reindexing introduced gap rows
-    hourly = add_cyclical_time_features(hourly)
-    if calendar_path:
-        hourly = add_academic_calendar(hourly, calendar_path)
-
+    hourly = hourly.sort_values(["location_name", "hour_bucket"]).reset_index(drop=True)
     hourly.to_csv(output_path, index=False)
-    print(f"Wrote {len(hourly)} rows to {output_path}")
+
+    span = hourly["hour_bucket"].max() - hourly["hour_bucket"].min()
+    observed = int(hourly[TARGET_COL].notna().sum())
+    print(f"Wrote {len(hourly)} panel rows ({observed} with observed counts) to {output_path}")
+    print(f"Locations: {hourly['location_name'].nunique()}  |  span: {span}")
+    return hourly
+
+
+# Back-compat alias: serve.py and older notebooks call build_features().
+build_features = build_panel
 
 
 if __name__ == "__main__":
@@ -154,7 +256,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", default="../data/marino_counts.csv")
     parser.add_argument("--output", default="../data/features.csv")
     parser.add_argument("--calendar", default="../data/academic_calendar.csv",
-                         help="academic calendar csv (date, semester_phase); pass --calendar '' to skip")
+                        help="academic calendar csv (date, semester_phase); pass --calendar '' to skip")
     args = parser.parse_args()
 
-    build_features(args.input, args.output, args.calendar)
+    build_panel(args.input, args.output, args.calendar)
