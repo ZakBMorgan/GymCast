@@ -2,8 +2,12 @@
 
 Availability is metadata attached after occupancy inference. It does not enter
 `FEATURE_COLS`, change historical `is_open`, zero closed-hour predictions, or
-remove forecast rows. The frontend integration is deferred; it does not yet
-use these fields or restrict quietest-hour comparisons to scheduled-open hours.
+remove forecast rows. The frontend labels availability and retains all hourly
+predictions in the data. Closed rows are hidden by default and can be restored
+with Show closed hours; partial and unknown rows stay visible. Local date headings
+group the table, and a summary lists up to three quietest fully open hours.
+Only fully scheduled-open hours with an effective open status are
+eligible for quietest-hour highlighting; partial and unknown hours are excluded.
 
 ## Maintained files
 
@@ -224,12 +228,16 @@ If the current hour occurs in the forecast timeline, it receives the live
 status plus observation/expiry/conflict metadata. Otherwise the current-state
 object exposes the evidence independently of the forecast horizon.
 
-These are snapshots at JSON generation time. A future frontend must check
-`live_valid_until` against the clock and show live conflicts separately. For
-forecast rows, fall back to hourly `scheduled_status` after live expiry. For
-current-state displays, `scheduled_status_now` is only a snapshot at
-`evaluated_at`; refresh it as time advances rather than treating the containing
-hour's `scheduled_status` as a current-minute answer. Reading the saved JSON does not
+These are snapshots at JSON generation time. The frontend checks
+`live_valid_until` against the clock and shows live conflicts separately.
+It rechecks cached data every 30 seconds without new API requests. For forecast
+rows, expired live evidence falls back to hourly `scheduled_status`. The separate
+current-status line follows the backend snapshot's `live_is_fresh` flag: true
+shows `live_status` and the GoBoard observation time, with any schedule conflict;
+false shows the timestamped `scheduled_status_now` and no fresh live confirmation.
+A missing freshness flag shows current status unavailable. The current-status
+line does not independently recalculate freshness from `live_valid_until`; a new
+backend snapshot is needed to update that flag. Reading the saved JSON does not
 refresh GoBoard evidence. Only scheduled-open hours should participate in
 quietest-hour comparisons, excluding a currently live-closed hour as well.
 

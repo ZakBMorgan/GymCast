@@ -9,7 +9,8 @@ Shared project context. Read [AGENTS.md](AGENTS.md) for working conventions,
 Help Northeastern students choose when to work out by forecasting hourly
 occupancy at Marino Center and SquashBusters locations. Default output is the
 next 24 hours per location. The pipeline, JSON API, and a basic local HTML/CSS/JavaScript frontend exist.
-The frontend displays locations and occupancy; availability rendering is deferred.
+The frontend displays location forecasts and availability, with quietest-hour
+highlighting restricted to fully scheduled-open hours.
 
 ## Architecture and data flow
 
@@ -197,10 +198,17 @@ using artifacts produced under the previous timestamp interpretation.
 - Extend evaluation to additional weeks and seasonal changes. Inspect per-horizon
   and per-fold rankings alongside aggregate improvement; the current report still
   shows overall underprediction (bias -1.04 occupants).
-- The local frontend has a location selector, hourly table, timestamps, quiet-hour
-  highlights, and capacity bars. Availability UI is explicitly deferred; its
-  current quietest-hour logic still includes closed hours. Apply schedule status
-  and live expiry/conflict metadata in the next frontend change.
+- The frontend retains all forecast data and hides closed rows by default behind
+  a Show closed hours toggle. It displays closed, partial (with scheduled open
+  minutes), unknown, and special-hour labels. Quietest-hour highlighting requires
+  both scheduled and effective status to be fully open. Current live reports and
+  conflicts appear beside timestamps; expiry is rechecked every 30 seconds.
+  Expired current evidence is presented as a timestamped schedule snapshot.
+  A compact summary lists up to three quietest fully open hours; local date
+  headings group the table. Metadata is compact and explanations are collapsible.
+  Dependency-free Node rendering checks cover row/value preservation, status
+  labels, highlighting, expiry, and location switching; browser appearance still
+  needs visual review.
 - The calendar join works, but `academic_calendar.csv` is header-only. Populate
   known dates and measure whether the feature helps; it is currently `unknown`.
 - No automatic retraining or prediction intervals. Verify and maintain schedule
@@ -215,7 +223,7 @@ using artifacts produced under the previous timestamp interpretation.
 
 1. Repeat walk-forward evaluation on later data and inspect coverage and bias.
 2. Populate the academic calendar and evaluate on additional periods.
-3. Integrate availability into the frontend without dropping closed forecast rows.
+3. Review the availability table in the browser, including narrow screens and stale data.
 4. Define completed-hour refresh timing and automate collection supervision,
    prediction refresh, and retraining as separate jobs.
 5. Consider intervals and forecast weather inputs after baseline validation.

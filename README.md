@@ -14,8 +14,9 @@ Evaluated across four weekly folds, scoring open hours at forecast horizons of
 1–24 hours. The strongest overall baseline was the same hour last week.
 
 **Working today:** a forecasting pipeline, JSON API, and basic local frontend
-with a location selector and hourly occupancy table. The backend also attaches
-facility availability; displaying those statuses in the frontend is the next step.
+with a location selector and hourly occupancy table. Availability labels distinguish
+closed, partial, unknown, and scheduled-open hours. Quietest-hour highlights use
+fully scheduled-open hours; current GoBoard evidence is shown when available.
 
 [Run it locally](#run-it-locally) · [Understand the pipeline](docs/pipeline_walkthrough.md) ·
 [Architecture and current state](PROJECT.md)
@@ -161,6 +162,7 @@ From the repository root:
 ```bash
 venv/bin/python tests/test_pipeline.py
 venv/bin/python tests/test_availability.py
+node tests/test_frontend.js     # frontend rendering checks; requires Node.js
 ```
 
 The pipeline tests generate synthetic occupancy data and cover leakage, fold
@@ -209,8 +211,11 @@ The collector reads public GoBoard facility counts for Northeastern locations.
 It stores aggregate occupancy observations, location metadata, and polling
 errors. Missing hourly observations remain `NaN`, not zero.
 
-- **Dashboard:** the local table and location selector work. Availability labels
-  and restricting quietest-hour comparisons to scheduled-open hours are deferred.
+- **Dashboard:** closed hours are hidden by default with a Show closed hours toggle.
+  The table groups hours by day, summarizes up to three quietest fully open hours,
+  preserves every forecast hour in the data, labels availability,
+  and highlights only fully scheduled-open hours. Fresh live closures exclude
+  the current hour; expired live evidence falls back to the schedule.
 - **Validation:** rerun the corrected evaluation and check additional weeks and
   seasonal changes. Keep a final period untouched when tuning.
 - **Academic calendar:** the join is implemented, but

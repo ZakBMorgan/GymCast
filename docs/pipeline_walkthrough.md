@@ -3266,5 +3266,7 @@ of an override does not establish that a date is exception-free.
 
 See [facility availability](facility_availability.md) for the file schemas,
 partial-hour classification, current GoBoard conflict rules, and JSON fields.
-The frontend does not yet consume these fields; availability display and
-scheduled-open quietest-hour filtering are deferred.
+The frontend consumes these fields to label every forecast hour and restrict
+quietest-hour comparisons to fully scheduled-open hours with effective open
+status. Live evidence is checked for expiry, and current-state snapshots are
+displayed with their evaluation timestamps.

@@ -48,6 +48,7 @@ Useful flags: `evaluate.py --folds N --test-days N --min-train-days N
 ```bash
 venv/bin/python tests/test_pipeline.py    # standalone runner, no pytest dependency
 venv/bin/python tests/test_availability.py # schedule and live-evidence regression suite
+node tests/test_frontend.js               # frontend rendering checks; requires Node.js
 venv/bin/python -m pytest tests/ # also works if pytest is installed
 ```
 
