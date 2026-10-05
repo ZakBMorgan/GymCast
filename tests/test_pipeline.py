@@ -16,6 +16,8 @@ Or under pytest if you have it:
 
 import os
 import sys
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,6 +32,8 @@ from features import (  # noqa: E402
     add_cyclical_time_features,
     add_academic_calendar,
     bucket_to_hour,
+    load_raw,
+    build_panel,
     build_supervised_frame,
     regularize_hourly,
 )
@@ -295,6 +299,48 @@ def test_serving_features_match_training_features():
         assert np.allclose(
             left[col].astype(float), right[col].astype(float), equal_nan=True
         ), f"serving frame disagrees with training frame on {col}"
+
+
+def test_raw_utc_timestamps_are_converted_before_hourly_bucketing():
+    # UTC-derived raw date/hour/weekday deliberately disagree with the New York date.
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "raw.csv"
+        raw = (
+            "timestamp,location_name,count,capacity,percent,is_open,date,hour,weekday\n"
+            "2026-10-05T03:47:00,Cardio,20,100,20,True,2026-10-05,3,Monday\n"
+            "2026-10-05T03:57:00+00:00,Cardio,40,100,40,True,2026-10-05,3,Monday\n"
+            "2026-10-05T04:07:00Z,Cardio,50,100,50,True,2026-10-05,4,Monday\n"
+        )
+        path.write_text(raw)
+        frame = load_raw(str(path))
+        assert frame.iloc[0]["timestamp"].isoformat() == "2026-10-04T23:47:00-04:00"
+        assert frame.iloc[1]["timestamp"].isoformat() == "2026-10-04T23:57:00-04:00"
+        assert frame.iloc[2]["timestamp"].isoformat() == "2026-10-05T00:07:00-04:00"
+        assert str(frame["timestamp"].dt.tz) == "America/New_York"
+        hourly = add_cyclical_time_features(bucket_to_hour(frame))
+        assert hourly["count"].tolist() == [30, 50]
+        assert hourly.iloc[0]["hour_bucket"].isoformat() == "2026-10-04T23:00:00-04:00"
+        assert hourly["hour"].tolist() == [23, 0]
+        assert hourly["weekday"].tolist() == [6, 0]
+        assert path.read_text() == raw, "loading must never rewrite raw history"
+
+
+def test_timezone_aware_panel_uses_local_calendar_date():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        raw = root / "raw.csv"
+        raw.write_text(
+            "timestamp,location_name,count,capacity,percent,is_open,date,hour,weekday\n"
+            "2026-10-05T03:47:00,Cardio,20,100,20,True,2026-10-05,3,Monday\n"
+            "2026-10-05T04:47:00+00:00,Cardio,40,100,40,True,2026-10-05,4,Monday\n")
+        calendar = root / "calendar.csv"
+        calendar.write_text("date,semester_phase\n2026-10-04,break\n2026-10-05,regular\n")
+        panel = build_panel(str(raw), str(root / "panel.csv"), str(calendar))
+        assert panel["semester_phase"].tolist() == ["break", "regular"]
+        assert panel["hour"].tolist() == [23, 0]
+        supervised = build_supervised_frame(panel, [1])
+        assert supervised.iloc[1]["count_at_origin"] == 20
+        assert supervised.iloc[1]["hour"] == 0
 
 
 def test_model_beats_persistence_on_synthetic_data():

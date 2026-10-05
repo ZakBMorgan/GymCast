@@ -7,9 +7,15 @@ occupancy at Northeastern's Marino Center and SquashBusters locations so you can
 plan around the crowds. It combines recent counts, daily and weekly patterns,
 and activity at other campus locations to estimate the next 24 hours.
 
-**Working today:** a forecasting pipeline and JSON API with hourly predictions
-per location. **Next:** a student-facing dashboard for comparing times and
-locations. The frontend is not built yet.
+**117K+ leak-resistant walk-forward predictions · MAE: 7.57 occupants ·
+10.9% lower MAE than the strongest overall baseline**
+
+Evaluated across four weekly folds, scoring open hours at forecast horizons of
+1–24 hours. The strongest overall baseline was the same hour last week.
+
+**Working today:** a forecasting pipeline, JSON API, and basic local frontend
+with a location selector and hourly occupancy table. The backend also attaches
+facility availability; displaying those statuses in the frontend is the next step.
 
 [Run it locally](#run-it-locally) · [Understand the pipeline](docs/pipeline_walkthrough.md) ·
 [Architecture and current state](PROJECT.md)
@@ -26,8 +32,9 @@ average. Each evaluation fold fits a fresh model on the past and tests forecasts
 issued at or after that fit's cutoff. Every method is scored on the same valid
 rows; the strongest baseline is determined by the results.
 
-The September evaluation predates a correction to forecast-origin filtering.
-Those scores need rerunning before they support a current accuracy claim. See
+The saved evaluation report contains 117,791 scored predictions: model MAE 7.57
+versus 8.51 for the strongest overall baseline. These are aggregate results;
+performance can vary by horizon and evaluation period. See
 [the current state](PROJECT.md#current-state) for the evidence and remaining work.
 
 ## How it works
@@ -48,7 +55,7 @@ GoBoard observations, polled about every 5 minutes
                                           ↓
                                       serve.py
                                           ↓
-                                     frontend (planned)
+                                     local frontend
 ```
 
 Training creates the saved model. Evaluation measures the modeling approach
@@ -153,11 +160,13 @@ From the repository root:
 
 ```bash
 venv/bin/python tests/test_pipeline.py
+venv/bin/python tests/test_availability.py
 ```
 
-The eight tests generate synthetic occupancy data and cover leakage, fold
+The pipeline tests generate synthetic occupancy data and cover leakage, fold
 boundaries, category consistency, serving features, and a model smoke test.
-Pytest is optional: `venv/bin/python -m pytest tests/` if installed.
+The separate availability suite checks schedule boundaries, overrides, DST,
+live-evidence expiry, and unchanged occupancy output. Pytest is optional: `venv/bin/python -m pytest tests/` if installed.
 
 ## Prediction output
 
@@ -189,7 +198,10 @@ latest hour.
 
 Counts are clipped at zero but not capped at capacity. Percentages are null
 when capacity is unavailable; they can exceed 100%. These are point estimates,
-without prediction intervals or an opening-hours schedule.
+without prediction intervals. Scheduled availability is attached separately;
+closed-hour predictions are retained and are not changed to zero. See
+[facility availability](docs/facility_availability.md) for maintained hours,
+overrides, and expiring GoBoard current-state evidence.
 
 ## Data and remaining work
 
@@ -197,8 +209,8 @@ The collector reads public GoBoard facility counts for Northeastern locations.
 It stores aggregate occupancy observations, location metadata, and polling
 errors. Missing hourly observations remain `NaN`, not zero.
 
-- **Dashboard:** build the view for comparing forecast hours and locations,
-  including a visible freshness indicator.
+- **Dashboard:** the local table and location selector work. Availability labels
+  and restricting quietest-hour comparisons to scheduled-open hours are deferred.
 - **Validation:** rerun the corrected evaluation and check additional weeks and
   seasonal changes. Keep a final period untouched when tuning.
 - **Academic calendar:** the join is implemented, but
@@ -221,8 +233,23 @@ errors. Missing hourly observations remain `NaN`, not zero.
 | `data/` | Local raw CSVs and hourly panel; committed calendar template |
 | `models/` | Generated model bundle, gitignored |
 | `outputs/` | Generated forecasts and evaluation reports, gitignored |
-| `web/` | Placeholder for the frontend |
+| `web/` | Local HTML/CSS/JavaScript forecast frontend |
 | [Pipeline walkthrough](docs/pipeline_walkthrough.md) | Detailed explanation with examples |
 | [PROJECT.md](PROJECT.md) | Concise architecture, methodology, and current state |
 | [AGENTS.md](AGENTS.md) | Coding conventions and correctness requirements |
 | [CLAUDE.md](CLAUDE.md) | Entry point pointing to the shared agent guidance |
+
+### Rebuilding after the raw timestamp correction
+
+Old naive collector timestamps represent UTC from the droplet. The raw loader
+now converts them to New York time before hourly bucketing; future collector
+rows include an explicit UTC offset. Raw CSVs stay unchanged.
+
+To replace artifacts built with the old timestamp interpretation, run from `src/`:
+
+```bash
+../venv/bin/python features.py
+../venv/bin/python train.py
+../venv/bin/python predict.py
+../venv/bin/python evaluate.py
+```

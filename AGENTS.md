@@ -47,10 +47,11 @@ Useful flags: `evaluate.py --folds N --test-days N --min-train-days N
 
 ```bash
 venv/bin/python tests/test_pipeline.py    # standalone runner, no pytest dependency
+venv/bin/python tests/test_availability.py # schedule and live-evidence regression suite
 venv/bin/python -m pytest tests/ # also works if pytest is installed
 ```
 
-All 8 must pass before you hand work back. They generate their own synthetic
+All pipeline tests and the availability suite must pass before you hand work back. They generate their own synthetic
 data — no real CSV needed, and they are the fastest way to verify a change.
 
 Do not add pytest as a required dependency; the standalone runner is
@@ -66,6 +67,7 @@ deliberate so the tests run anywhere.
 | `src/predict.py` | Serving path; reuses `build_supervised_frame()` |
 | `src/collector.py` | GoBoard poller |
 | `src/serve.py` | Flask API |
+| `src/availability.py` | Schedule classification and expiring current-state evidence |
 | `tests/test_pipeline.py` | Leakage and skew assertions — the real spec |
 
 ## Do not change casually
@@ -97,6 +99,12 @@ without understanding the reasoning reintroduces bugs no error message reports.
 9. **Keep `regularize_hourly()` before any shift.** Lags are positional; a
    polling gap otherwise slides "same hour last week" off by an hour.
 
+10. **Availability stays separate from occupancy.** Keep historical `is_open`,
+   all forecast rows, and predicted counts unchanged. Scheduled status comes
+   from maintained hours/overrides; fresh raw GoBoard flags affect only the
+   current hour and exact reporting location. Never extrapolate a live closure.
+   Empty overrides mean no known exception, not verified absence of exceptions.
+
 Safe to change freely: hyperparameters in `DEFAULT_PARAMS`, report formatting,
 baseline additions, CLI defaults, docs.
 
@@ -125,8 +133,12 @@ baseline additions, CLI defaults, docs.
 - Local artifacts now contain weeks of September observations, but fresh clones
   have no collected history. **Develop against the synthetic generator in
   `tests/test_pipeline.py::synthetic_panel`**, not the real CSV.
-- September evaluation scores predate the origin-cutoff fix; rerun evaluation
-  before citing them as current performance.
+- Current evaluation metrics and their scope are recorded in `PROJECT.md`.
+  Verify claims against `outputs/eval.json`; do not reuse the superseded
+  September report or present aggregate improvement as a win on every horizon.
+- Legacy naive raw timestamps are UTC from the droplet. `load_raw()` converts
+  raw timestamps to New York time before bucketing; never rewrite raw history
+  or use its UTC-derived date/hour/weekday columns as local features.
 - Never commit collected occupancy CSVs.
 - `features.csv` format changed in August 2026. If you hit an old file,
   `train.py` raises a clear error — re-run `features.py`.

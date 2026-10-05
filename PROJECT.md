@@ -8,8 +8,8 @@ Shared project context. Read [AGENTS.md](AGENTS.md) for working conventions,
 
 Help Northeastern students choose when to work out by forecasting hourly
 occupancy at Marino Center and SquashBusters locations. Default output is the
-next 24 hours per location. The pipeline and JSON API exist; the student-facing
-frontend does not yet exist.
+next 24 hours per location. The pipeline, JSON API, and a basic local HTML/CSS/JavaScript frontend exist.
+The frontend displays locations and occupancy; availability rendering is deferred.
 
 ## Architecture and data flow
 
@@ -21,7 +21,7 @@ collector.py → raw CSV → features.py → hourly panel
                                                                          ↓
                                                                      serve.py
                                                                          ↓
-                                                                  frontend (planned)
+                                                                  local frontend
 ```
 
 Training, evaluation, and live prediction are separate consumers of the panel.
@@ -31,8 +31,13 @@ is flat CSV plus generated pickle/JSON artifacts; there is no database.
 - **Collection:** a continuous loop polls public GoBoard counts about every
   300 seconds. It appends occupancy and metadata to `data/marino_counts.csv`,
   including `location_id` and inverted `IsClosed` as `is_open`. Missing closure
-  flags remain unknown. Request failures go to `poll_errors.csv`.
-- **Panel:** `bucket_to_hour()` groups by location name and hour: mean count and
+  flags remain unknown. Request failures go to `poll_errors.csv`. New poll and
+  error timestamps use explicit UTC offsets. Legacy naive raw timestamps came
+  from the UTC droplet and are interpreted as UTC by the raw loader.
+- **Panel:** `load_raw()` parses mixed naive/aware raw timestamps as UTC and
+  converts them to `America/New_York` before bucketing. Raw date/hour/weekday
+  fields are ignored; local calendar dates and time features come from the
+  converted buckets. `bucket_to_hour()` groups by location name and hour: mean count and
   percentage, max capacity and open flag. `regularize_hourly()` inserts missing
   hours with unknown counts. Capacity is filled as stable metadata. Time,
   calendar, and same-hour peer context are added; `features.csv` contains no lags.
@@ -130,34 +135,76 @@ refresh, and model retraining have separate lifecycles.
 
 ## Current State
 
-_Last updated: 2026-10-04_
+_Last updated: 2026-10-05_
 
 - Collection, hourly panel construction, training, evaluation, prediction, and
-  Flask API are implemented. Eight synthetic tests cover feature leakage, fold
+  Flask API are implemented. Ten synthetic pipeline tests cover timezone loading,
+  feature leakage, fold
   boundaries, representation consistency, serving parity, and a model smoke test.
-  All 8 passed on October 4 using `venv/bin/python tests/test_pipeline.py`.
+  Run `venv/bin/python tests/test_pipeline.py` for the standalone suite.
 - The local September artifacts contain weeks of observations, not the original
   single poll. Generated data and model files remain gitignored; development
   and regression checks should use the synthetic fixture.
-- The September 30 evaluation reported 126,840 scored predictions over four
-  folds: MAE 7.82 vs. 8.85 for the weekly baseline, 11.7% skill. **These numbers
-  predate the origin-cutoff correction and are not current validated scores.**
+- The current `outputs/eval.json` reports 117,791 scored predictions over four
+  weekly folds ending September 13, 20, 27, and October 4, 2026 (New York time).
+  Open-hour evaluation covers horizons 1–24. Model MAE is 7.5749 occupants vs.
+  8.5061 for the strongest overall baseline, `seasonal_naive_168h`: 10.9% lower
+  MAE. Aggregate bias is -1.0408. These supersede the earlier September report;
+  they are aggregate results, not a claim of superiority at every horizon/fold.
 - The origin-cutoff regression is fixed. The walkthrough now explains the
   separate workflows, known future context, backend encoding, and fold timing.
   README and agent guidance have been aligned with those distinctions.
 - The previous local runs used sklearn because LightGBM could not load `libomp`.
   Check the printed backend for each new run; neither backend is tuned.
 
+### Availability layer
+
+`availability.py` attaches scheduled status after inference using the seeded
+`data/facility_hours.json`, exact location-to-facility mappings, and date/time
+intervals in `data/facility_overrides.json`. The overrides file is intentionally
+empty: unrecorded Fall 2026 exceptions remain possible. No hours were invented.
+Open/closed/partial/unknown statuses retain every forecast row and count; the
+historical `is_open` column and model construction remain unchanged. Date overrides
+now explicitly distinguish `overlay` (weekly fallback) from `replace` (uncovered
+time closed). Legacy interval arrays retain overlay semantics. Replacement defaults
+are attributed to the override; an empty replacement closes the entire date.
+
+`scheduled_status` continues to classify the full forecast hour. Current-state
+objects additionally expose `scheduled_status_now` and `schedule_source_now` at
+`evaluated_at`; their effective `facility_status` uses that minute-level schedule
+unless fresh live evidence overrides it. A 05:30 opening is current-closed at
+05:15 and current-open at 05:45, with the hourly schedule remaining partial.
+
+Current raw GoBoard flags are separate location-scoped evidence, expiring after
+15 minutes or at the hour boundary. Current conflicts can override the effective
+status for that hour only; scheduled status is preserved. Output records live
+observation/expiry times and conflict metadata. Future clients must enforce
+expiry even when reading cached JSON. See
+[facility availability](docs/facility_availability.md) for schemas and semantics.
+The standalone availability tests supplement the pipeline tests.
+
+### Raw timestamp correction
+
+Legacy naive raw timestamps now mean UTC, not New York local time. The collector
+writes explicit UTC offsets going forward. Hourly aggregation and ML behavior
+are otherwise unchanged; calendar joins use the local civil date, and the live
+raw-poll reader applies the same UTC interpretation. Raw CSVs are not rewritten.
+Rebuild features, retrain, regenerate predictions, and rerun evaluation before
+using artifacts produced under the previous timestamp interpretation.
+
 ### Unfinished and open questions
 
-- Rerun corrected evaluation before making accuracy claims. Check additional
-  weeks, seasonal changes, per-horizon rankings, and underprediction seen in the
-  old report. The earlier first-fold weakness needs reassessment too.
-- `web/` is a placeholder. Build hour/location comparisons and show data freshness
-  using `forecast_origin`, not just file creation time.
+- Extend evaluation to additional weeks and seasonal changes. Inspect per-horizon
+  and per-fold rankings alongside aggregate improvement; the current report still
+  shows overall underprediction (bias -1.04 occupants).
+- The local frontend has a location selector, hourly table, timestamps, quiet-hour
+  highlights, and capacity bars. Availability UI is explicitly deferred; its
+  current quietest-hour logic still includes closed hours. Apply schedule status
+  and live expiry/conflict metadata in the next frontend change.
 - The calendar join works, but `academic_calendar.csv` is header-only. Populate
   known dates and measure whether the feature helps; it is currently `unknown`.
-- No automatic retraining, prediction intervals, or opening-hours schedule.
+- No automatic retraining or prediction intervals. Verify and maintain schedule
+  exceptions; the weekly baseline alone does not establish real-time availability.
 - Buckets are labelled at their start; the latest live bucket can be partial.
   Historical evaluation assumes origin-bucket observations are available.
   Completed-hour issuance and partial-hour behavior need explicit validation.
@@ -166,9 +213,9 @@ _Last updated: 2026-10-04_
 
 ### Next work
 
-1. Rerun corrected walk-forward evaluation and inspect coverage and bias.
+1. Repeat walk-forward evaluation on later data and inspect coverage and bias.
 2. Populate the academic calendar and evaluate on additional periods.
-3. Build the dashboard with freshness information.
+3. Integrate availability into the frontend without dropping closed forecast rows.
 4. Define completed-hour refresh timing and automate collection supervision,
    prediction refresh, and retraining as separate jobs.
 5. Consider intervals and forecast weather inputs after baseline validation.

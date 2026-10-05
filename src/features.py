@@ -55,7 +55,11 @@ DEFAULT_HORIZONS = tuple(range(1, 25))
 
 
 def load_raw(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path, parse_dates=["timestamp"])
+    df = pd.read_csv(path)
+    # Legacy naive values came from the UTC droplet; new polls include an offset.
+    # Mixed parsing allows both formats to coexist in the append-only raw CSV.
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="mixed", utc=True)
+    df["timestamp"] = df["timestamp"].dt.tz_convert("America/New_York")
     df = df.sort_values(["location_name", "timestamp"]).reset_index(drop=True)
     return df
 
@@ -140,7 +144,8 @@ def add_academic_calendar(df: pd.DataFrame, calendar_path: str | None) -> pd.Dat
         df["semester_phase"] = "unknown"
         return df
 
-    df["date"] = df["hour_bucket"].dt.floor("D")
+    # Calendar dates are local civil dates, not instants; match the naive CSV dates.
+    df["date"] = df["hour_bucket"].dt.tz_localize(None).dt.floor("D")
     df = df.merge(cal, on="date", how="left")
     df["semester_phase"] = df["semester_phase"].fillna("unknown")
     df = df.drop(columns=["date"])

@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "timezone": "America/New_York",
+  "source": "Northeastern University Recreation",
+  "source_url": "https://recreation.northeastern.edu/facility-hours/",
+  "facilities": {
+    "marino": {
+      "display_name": "Marino Recreation Center",
+      "weekly_hours": {
+        "monday":    { "open": "05:30", "close": "24:00" },
+        "tuesday":   { "open": "05:30", "close": "24:00" },
+        "wednesday": { "open": "05:30", "close": "24:00" },
+        "thursday":  { "open": "05:30", "close": "24:00" },
+        "friday":    { "open": "05:30", "close": "24:00" },
+        "saturday":  { "open": "08:00", "close": "24:00" },
+        "sunday":    { "open": "08:00", "close": "24:00" }
+      }
+    },
+    "squashbusters": {
+      "display_name": "SquashBusters Center",
+      "weekly_hours": {
+        "monday":    { "open": "06:00", "close": "24:00" },
+        "tuesday":   { "open": "06:00", "close": "24:00" },
+        "wednesday": { "open": "06:00", "close": "24:00" },
+        "thursday":  { "open": "06:00", "close": "24:00" },
+        "friday":    { "open": "06:00", "close": "21:00" },
+        "saturday":  { "open": "08:00", "close": "21:00" },
+        "sunday":    { "open": "10:00", "close": "21:00" }
+      }
+    }
+  },
+  "location_facility_map": {
+    "Marino Center - 3rd Floor Select & Cardio": "marino",
+    "Marino Center - 3rd Floor Weight Room": "marino",
+    "Marino Center - Gymnasium": "marino",
+    "Marino Center - Studio A": "marino",
+    "Marino Center - Studio B": "marino",
+    "Marino Center- 1st Floor Weight Room": "marino",
+    "Marino Center - 1st Floor Weight Room": "marino",
+    "Marino Center- 2nd Floor": "marino",
+    "Marino Center - 2nd Floor": "marino",
+    "SquashBusters - 4th Floor": "squashbusters"
+  }
+}

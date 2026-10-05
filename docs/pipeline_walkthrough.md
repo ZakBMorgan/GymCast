@@ -187,7 +187,17 @@ The collector operates at approximately five-minute resolution, but GymCast's fo
 
 `bucket_to_hour()` bridges those two resolutions.
 
-The function first floors each timestamp to its hour:
+Before bucketing, `load_raw()` reads the raw timestamp strings, parses them
+with `pd.to_datetime(..., format="mixed", utc=True)`, and converts them to
+`America/New_York`. Old naive timestamps came from the UTC droplet; new collector
+timestamps include an explicit UTC offset. For example, `2026-10-05T03:47:00`
+becomes `2026-10-04T23:47:00-04:00`. The raw CSV is not modified.
+
+Raw `date`, `hour`, and `weekday` describe the UTC observation and are ignored
+when constructing local time features. Calendar joins use the converted local
+civil date.
+
+The bucketing function then floors each converted timestamp to its hour:
 
 ```python
 df["hour_bucket"] = df["timestamp"].dt.floor("h")
@@ -1944,9 +1954,12 @@ aggregate metrics
 individual fold results
 ```
 
-The September 30 report predates the origin-cutoff fix. It needs rerunning
-before its numbers support current accuracy claims; see
-[Current State](../PROJECT.md#current-state).
+The current saved report scores 117,791 predictions across four weekly folds
+with open-hour targets and horizons 1–24. Model MAE is 7.57 occupants, 10.9%
+lower than the strongest overall baseline (same hour last week, MAE 8.51).
+Use unrounded values when calculating the improvement. These aggregate results
+supersede the September 30 report; see [Current State](../PROJECT.md#current-state)
+for scope and remaining evaluation questions.
 
 ### Key Takeaway
 
@@ -2581,7 +2594,11 @@ raw prediction     final
 
 because negative gym occupancy is impossible. Counts are not capped at capacity,
 so predicted percentages can exceed 100%. The output contains point estimates,
-without prediction intervals or an opening-hours schedule.
+without prediction intervals. Availability is now attached after occupancy
+prediction as a separate metadata layer; see
+[facility availability](facility_availability.md). It preserves closed-hour
+counts, uses maintained weekly hours and verified overrides, and confines live
+GoBoard evidence to the current hour. Historical `is_open` remains unchanged.
 
 ---
 
@@ -3240,3 +3257,14 @@ collect observations
 The goal is not merely to know that GymCast works.
 
 The goal is to understand **why each stage exists, what information crosses each boundary, and how the system avoids using information that would not have existed when a real forecast was made.**
+## Facility availability after inference
+
+The prediction output now gains schedule metadata from `availability.py` after
+`forecast()` has produced its occupancy estimates. The seeded weekly schedule
+is the baseline, with no date-specific exceptions currently recorded. Absence
+of an override does not establish that a date is exception-free.
+
+See [facility availability](facility_availability.md) for the file schemas,
+partial-hour classification, current GoBoard conflict rules, and JSON fields.
+The frontend does not yet consume these fields; availability display and
+scheduled-open quietest-hour filtering are deferred.

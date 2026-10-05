@@ -22,6 +22,14 @@ import json
 
 import pandas as pd
 
+from availability import (
+    TIMEZONE,
+    current_availability,
+    forecast_availability,
+    load_config,
+    read_live_observations,
+    timestamp_text,
+)
 from features import (
     add_academic_calendar,
     add_cyclical_time_features,
@@ -87,7 +95,8 @@ def forecast(bundle: dict, panel: pd.DataFrame, hours_ahead: int,
     return frame.sort_values(["location_name", "hour_bucket"])
 
 
-def to_website_json(frame: pd.DataFrame, capacity_lookup: dict) -> dict:
+def to_website_json(frame: pd.DataFrame, capacity_lookup: dict, hours: dict | None = None,
+                    overrides: dict | None = None, current: dict | None = None) -> dict:
     output = {}
     for loc, group in frame.groupby("location_name"):
         capacity = capacity_lookup.get(loc)
@@ -95,17 +104,22 @@ def to_website_json(frame: pd.DataFrame, capacity_lookup: dict) -> dict:
         for _, row in group.iterrows():
             pct = (row["predicted_count"] / capacity * 100) if capacity else None
             entries.append({
-                "time": row["hour_bucket"].isoformat(),
+                "time": timestamp_text(row["hour_bucket"]),
                 "horizon_hours": int(row["horizon"]),
                 "predicted_count": round(float(row["predicted_count"]), 1),
                 "predicted_percent": round(pct, 1) if pct is not None else None,
+                **forecast_availability(loc, row["hour_bucket"], hours or {}, overrides or {},
+                                        (current or {}).get(loc)),
             })
         output[loc] = entries
     return output
 
 
 def main(model_path: str, features_path: str, hours_ahead: int, output_path: str,
-         calendar_path: str | None):
+         calendar_path: str | None, hours_path: str | None = "../data/facility_hours.json",
+         overrides_path: str | None = "../data/facility_overrides.json",
+         live_path: str | None = "../data/marino_counts.csv"):
+    hours, overrides = load_config(hours_path, overrides_path)
     bundle = load_bundle(model_path)
     panel = pd.read_csv(features_path, parse_dates=["hour_bucket"])
 
@@ -116,12 +130,19 @@ def main(model_path: str, features_path: str, hours_ahead: int, output_path: str
         .groupby("location_name")["capacity"].last().to_dict()
         if "capacity" in panel.columns else {}
     )
-    result = to_website_json(frame, capacity_lookup)
+    now = pd.Timestamp.now(tz=TIMEZONE)
+    observations = read_live_observations(live_path)
+    current = {loc: current_availability(loc, hours, overrides, observations, now)
+               for loc in frame["location_name"].unique()}
+    result = to_website_json(frame, capacity_lookup, hours, overrides, current)
 
-    origins = {loc: str(t) for loc, t in latest_origins(panel).items()}
+    origins = {loc: timestamp_text(t) for loc, t in latest_origins(panel).items()}
     with open(output_path, "w") as f:
         json.dump({
-            "generated_at": pd.Timestamp.now().isoformat(),
+            "generated_at": now.isoformat(),
+            "availability_timezone": TIMEZONE,
+            "unrecorded_exceptions_possible": True,
+            "current_availability": current,
             "forecast_origin": origins,
             "model_trained_through": str(bundle.get("trained_through")),
             "locations": result,
@@ -137,6 +158,14 @@ if __name__ == "__main__":
     parser.add_argument("--hours-ahead", type=int, default=24)
     parser.add_argument("--output", default="../outputs/predictions.json")
     parser.add_argument("--calendar", default="../data/academic_calendar.csv")
+    parser.add_argument("--facility-hours", default="../data/facility_hours.json")
+    parser.add_argument("--facility-overrides", default="../data/facility_overrides.json")
+    parser.add_argument("--live-observations", default="../data/marino_counts.csv",
+                        help="raw polls for current-hour evidence; pass '' to disable")
     args = parser.parse_args()
 
-    main(args.model, args.features, args.hours_ahead, args.output, args.calendar)
+    try:
+        main(args.model, args.features, args.hours_ahead, args.output, args.calendar,
+             args.facility_hours, args.facility_overrides, args.live_observations)
+    except ValueError as exc:
+        parser.exit(1, f"predict.py: {exc}\n")

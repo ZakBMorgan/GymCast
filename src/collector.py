@@ -17,7 +17,7 @@ Features:
 import csv
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 from dotenv import load_dotenv
 
@@ -79,7 +79,7 @@ def log_error(message: str):
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(["timestamp", "error"])
-        writer.writerow([datetime.now().isoformat(timespec="seconds"), message])
+        writer.writerow([datetime.now(timezone.utc).isoformat(timespec="seconds"), message])
 
 
 if __name__ == "__main__":
@@ -87,7 +87,7 @@ if __name__ == "__main__":
 
     while True:
         try:
-            now_dt = datetime.now()
+            now_dt = datetime.now(timezone.utc)
             now = now_dt.isoformat(timespec="seconds")
             date = now_dt.date().isoformat()
             hour = now_dt.hour
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
         except Exception as e:
             error_msg = str(e)
-            print(f"Error at {datetime.now().isoformat(timespec='seconds')}: {error_msg}")
+            print(f"Error at {datetime.now(timezone.utc).isoformat(timespec='seconds')}: {error_msg}")
             log_error(error_msg)
 
         time.sleep(POLL_SECONDS)
