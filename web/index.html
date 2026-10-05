@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GymCast</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <h1>GymCast</h1>
+      <p>Find a better time to work out.</p>
+
+      <label for="location-select">Location</label>
+      <select id="location-select" disabled>
+        <option>Locations will appear here</option>
+      </select>
+
+      <p id="status" role="status">Forecasts are not loaded yet.</p>
+
+      <section aria-labelledby="forecast-heading">
+        <h2 id="forecast-heading">Hourly forecast</h2>
+
+        <p class="forecast-meta">
+          Observed <span id="forecast-origin">—</span> ·
+          Generated <span id="generated-at">—</span> · New York time
+        </p>
+        <p id="current-availability" class="forecast-meta" role="status" hidden></p>
+        <p id="quiet-hours-summary" class="quiet-summary"></p>
+        <div class="forecast-controls">
+          <label for="show-closed-hours" class="closed-toggle">
+            <input type="checkbox" id="show-closed-hours"> Show closed hours
+          </label>
+          <details class="forecast-help">
+            <summary>About this forecast</summary>
+            <p>Highlights mark the lowest occupancy among fully scheduled-open hours.
+              Partial and unknown hours are excluded. Occupancy predictions do not
+              guarantee availability; scheduled hours may have unrecorded exceptions.</p>
+          </details>
+        </div>
+        <p id="forecast-empty" role="status" hidden></p>
+
+        <table>
+          <caption>Predicted occupancy by hour</caption>
+          <thead>
+            <tr>
+              <th scope="col">Time</th>
+              <th scope="col">Predicted people</th>
+              <th scope="col">Capacity used</th>
+              <th scope="col">Availability</th>
+            </tr>
+          </thead>
+          <tbody id="forecast-rows"></tbody>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

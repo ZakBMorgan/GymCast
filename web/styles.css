@@ -1,0 +1,161 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  color: #172033;
+  background: #f5f7fa;
+}
+
+main {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 32px 20px;
+}
+
+h1 {
+  margin-bottom: 0;
+}
+
+label {
+  display: block;
+  margin-top: 24px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+select {
+  width: 100%;
+  padding: 12px;
+  font: inherit;
+  border: 1px solid #68758a;
+  border-radius: 6px;
+}
+
+#status {
+  color: #526078;
+}
+
+section {
+  overflow-x: auto;
+  margin-top: 24px;
+  padding: 20px;
+  background: white;
+  border: 1px solid #dce2ea;
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+caption {
+  margin-bottom: 12px;
+  text-align: left;
+  font-weight: 600;
+}
+
+th,
+td {
+  padding: 12px 8px;
+  text-align: left;
+  border-bottom: 1px solid #dce2ea;
+}
+
+th {
+  background: #f5f7fa;
+}
+
+.quiet-hour {
+  background: #e8f5ec;
+  font-weight: 600;
+}
+
+.capacity-track {
+  width: 100%;
+  max-width: 180px;
+  height: 8px;
+  margin-top: 6px;
+  overflow: hidden;
+  background: #dce2ea;
+  border-radius: 4px;
+}
+
+.capacity-fill {
+  height: 100%;
+  background: #3563b8;
+  border-radius: inherit;
+}
+
+.availability-closed {
+  background: #eef0f4;
+}
+
+.availability-partial {
+  background: #fff8e8;
+}
+
+.availability-closed .availability-label {
+  color: #465268;
+}
+
+.availability-partial .availability-label,
+.availability-unknown .availability-label {
+  color: #785300;
+}
+
+.availability-label {
+  font-size: 0.9rem;
+}
+
+#forecast-heading {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+.forecast-meta {
+  margin: 6px 0;
+  font-size: 0.85rem;
+  color: #526078;
+}
+
+.quiet-summary {
+  margin: 16px 0;
+  font-size: 0.95rem;
+}
+
+.forecast-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 24px;
+  margin-bottom: 12px;
+}
+
+.closed-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.forecast-help {
+  font-size: 0.85rem;
+  color: #526078;
+}
+
+.forecast-help summary {
+  cursor: pointer;
+}
+
+.day-divider th {
+  padding-top: 18px;
+  font-size: 0.9rem;
+}
