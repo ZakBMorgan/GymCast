@@ -35,6 +35,8 @@ Usage (run from src/, defaults point at ../data):
 
 import argparse
 import json
+from pathlib import Path
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -154,7 +156,9 @@ def score(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     }
 
 
-def evaluate_fold(train_df: pd.DataFrame, test_df: pd.DataFrame) -> dict | None:
+def evaluate_fold(
+    train_df: pd.DataFrame, test_df: pd.DataFrame, scored_rows: list | None = None,
+) -> dict | None:
     """Fit on the fold's training rows, score model and baselines on its test rows."""
     if train_df.empty or test_df.empty:
         return None
@@ -175,6 +179,23 @@ def evaluate_fold(train_df: pd.DataFrame, test_df: pd.DataFrame) -> dict | None:
         common &= np.isfinite(p)
     if not common.any():
         return None
+
+    # Export the exact model outputs and common-mask rows used below. Never refit
+    # or run the production bundle to reconstruct historical predictions.
+    if scored_rows is not None:
+        selected = test_df.loc[common]
+        for (_, row), predicted, actual in zip(
+            selected.iterrows(), preds["model"][common], y[common]):
+            scored_rows.append({
+                "location_name": str(row["location_name"]),
+                "target_time": row["hour_bucket"].isoformat(),
+                "origin_time": row["origin_bucket"].isoformat(),
+                "horizon_hours": int(row["horizon"]),
+                "fold_cutoff": test_df.attrs["cutoff"].isoformat(),
+                "predicted_count": float(predicted),
+                "actual_count": float(actual),
+                "absolute_error": float(abs(predicted - actual)),
+            })
 
     return {
         "cutoff": test_df.attrs.get("cutoff"),
@@ -263,7 +284,8 @@ def print_report(agg: dict, fold_results: list[dict], open_only: bool) -> None:
 
 
 def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
-        horizons, open_only: bool, report_out: str | None) -> dict | None:
+        horizons, open_only: bool, report_out: str | None,
+        predictions_out: str | None = None) -> dict | None:
     frame = load_supervised(input_path, horizons)
     frame = frame.dropna(subset=[TARGET_COL])
 
@@ -287,10 +309,11 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
         return None
 
     results = []
+    scored_rows = [] if predictions_out else None
     for cutoff, test_end in folds:
         train_df, test_df = split_fold(frame, cutoff, test_end)
 
-        fold = evaluate_fold(train_df, test_df)
+        fold = evaluate_fold(train_df, test_df, scored_rows)
         if fold is None:
             print(f"  skipped fold at {cutoff:%Y-%m-%d} (no scorable rows)")
             continue
@@ -319,6 +342,20 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
         with open(report_out, "w") as fh:
             json.dump(report, fh, indent=2)
         print(f"\nWrote report to {report_out}")
+    if predictions_out:
+        destination = Path(predictions_out)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        history = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "evaluation_type": "walk_forward",
+            "config": report["config"],
+            "rows": scored_rows,
+        }
+        # Readers see either the previous complete export or the new complete export.
+        temporary = destination.with_suffix(destination.suffix + ".tmp")
+        temporary.write_text(json.dumps(history, allow_nan=False))
+        temporary.replace(destination)
+        print(f"Wrote scored walk-forward predictions to {destination}")
     return report
 
 
@@ -335,9 +372,12 @@ if __name__ == "__main__":
     parser.add_argument("--all-hours", action="store_true",
                         help="include hours the gym was closed (default: open hours only)")
     parser.add_argument("--report-out", default=None)
+    parser.add_argument("--predictions-out", default="../outputs/evaluation_predictions.json",
+                        help="export scored walk-forward rows; pass an empty string to disable")
     args = parser.parse_args()
 
     run(
         args.input, args.folds, args.test_days, args.min_train_days,
         range(1, args.max_horizon + 1), not args.all_hours, args.report_out,
+        args.predictions_out,
     )

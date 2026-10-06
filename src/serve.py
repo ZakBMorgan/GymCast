@@ -16,13 +16,14 @@ import os
 import subprocess
 import sys
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)  # allow your website's frontend JS to fetch this cross-origin
 
 BASE_DIR = os.path.dirname(__file__)
+EVALUATION_FILE = os.path.join(BASE_DIR, "..", "outputs", "evaluation_predictions.json")
 PREDICTIONS_FILE = os.path.join(BASE_DIR, "..", "outputs", "predictions.json")
 
 
@@ -30,6 +31,27 @@ PREDICTIONS_FILE = os.path.join(BASE_DIR, "..", "outputs", "predictions.json")
 def get_predictions():
     with open(PREDICTIONS_FILE) as f:
         return jsonify(json.load(f))
+
+
+@app.route("/api/evaluation-history", methods=["GET"])
+def get_evaluation_history():
+    try:
+        with open(EVALUATION_FILE) as f:
+            history = json.load(f)
+        horizon = request.args.get("horizon")
+        if horizon is not None:
+            try:
+                horizon = int(horizon)
+                if horizon < 1:
+                    raise ValueError
+            except ValueError:
+                return jsonify({"error": "horizon must be a positive integer"}), 400
+            history["rows"] = [
+                row for row in history["rows"] if row["horizon_hours"] == horizon
+            ]
+        return jsonify(history)
+    except FileNotFoundError:
+        return jsonify({"error": "Evaluation history unavailable. Run evaluate.py to export it."}), 404
 
 
 @app.route("/api/refresh", methods=["POST"])
