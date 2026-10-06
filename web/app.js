@@ -1,12 +1,15 @@
 let loadedData = null;
 
+const EXPIRED_FORECAST =
+  "Forecast is out of date. Refresh prediction data to see upcoming hours.";
+
 const statusElement = document.getElementById("status");
 
 async function loadPredictions() {
   statusElement.textContent = "Loading forecasts…";
 
   try {
-    const response = await fetch("http://localhost:5000/api/predictions");
+    const response = await fetch("http://localhost:5000/api/predictions", { method: "GET" });
 
     if (!response.ok) {
       throw new Error(`Request failed: HTTP ${response.status}`);
@@ -52,11 +55,15 @@ async function loadPredictions() {
 }
 
 function renderLocation(data, locationName, now = Date.now()) {
+  // Preserve history scroll position during the current-forecast clock updates.
+  if (document.getElementById("history-location").textContent !== locationName) {
+    renderEvaluationHistory(locationName);
+  }
   const predictions = data.locations[locationName];
   const tableBody = document.getElementById("forecast-rows");
 
   document.getElementById("forecast-heading").textContent =
-    `${locationName} — hourly forecast`;
+    locationName;
 
   const origin = data.forecast_origin?.[locationName];
 
@@ -74,12 +81,10 @@ function renderLocation(data, locationName, now = Date.now()) {
     .sort((a, b) => a.predicted_count - b.predicted_count
       || Date.parse(a.time) - Date.parse(b.time));
   const counts = candidates.map((prediction) => prediction.predicted_count);
-  const summary = document.getElementById("quiet-hours-summary");
-  summary.textContent = candidates.length
-    ? "Quietest fully open hours: " + candidates.slice(0, 3)
-      .map((prediction) => `${formatTimestamp(prediction.time)} — ${prediction.predicted_count} people`)
-      .join(" · ")
-    : "No fully scheduled-open hours are available for a quietest-time comparison.";
+  renderForecastFreshness(data, predictions, now);
+  renderBestTimes(candidates, predictions, now);
+  renderForecastOverview(predictions, now);
+  renderForecastChart(predictions, now);
 
   const lowestCount = counts.length > 0 ? Math.min(...counts) : null;
 
@@ -138,6 +143,184 @@ function renderLocation(data, locationName, now = Date.now()) {
     row.appendChild(statusCell);
     tableBody.appendChild(row);
   }
+}
+
+function isUpcoming(prediction, now) {
+  return Date.parse(prediction.time) > now;
+}
+
+function forecastExpired(predictions, now) {
+  const timestamps = predictions.map((p) => Date.parse(p.time)).filter(Number.isFinite);
+  return timestamps.length > 0 && Math.max(...timestamps) <= now;
+}
+
+function renderForecastFreshness(data, predictions, now) {
+  const element = document.getElementById("forecast-freshness");
+  element.setAttribute("data-expired", String(forecastExpired(predictions, now)));
+  if (forecastExpired(predictions, now)) {
+    element.textContent = EXPIRED_FORECAST;
+    return;
+  }
+  if (!predictions.some((p) => isUpcoming(p, now))) {
+    element.textContent = "No upcoming forecast timestamps available.";
+    return;
+  }
+  const generated = Date.parse(data.generated_at?.replace(" ", "T"));
+  const ageMinutes = Math.floor((now - generated) / 60000);
+  element.textContent = Number.isFinite(ageMinutes) && ageMinutes >= 0
+    ? `Generated ${ageMinutes < 60 ? `${ageMinutes} min` : `${Math.floor(ageMinutes / 60)} hr`} ago · Upcoming hours remain in this forecast.`
+    : "Generation time unavailable or ahead of the browser clock.";
+}
+
+function renderBestTimes(candidates, predictions, now) {
+  const summary = document.getElementById("quiet-hours-summary");
+  summary.replaceChildren();
+  if (!candidates.length) {
+    const empty = document.createElement("li");
+    empty.classList.add("empty-state");
+    empty.textContent = forecastExpired(predictions, now) ? EXPIRED_FORECAST
+      : "No fully scheduled-open upcoming hours are available for a quietest-time comparison.";
+    summary.appendChild(empty);
+    return;
+  }
+  for (const prediction of candidates.slice(0, 3)) {
+    const item = document.createElement("li");
+    const time = document.createElement("strong");
+    time.textContent = formatTimestamp(prediction.time);
+    const count = document.createElement("span");
+    count.textContent = `${prediction.predicted_count} people predicted`;
+    item.append(time, count);
+    summary.appendChild(item);
+  }
+}
+
+function renderForecastOverview(predictions, now) {
+  // Select a copy so summary ordering never changes the chart/table data.
+  const next = predictions
+    .filter((prediction) => isUpcoming(prediction, now) && prediction.facility_status === "open")
+    .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))[0];
+  document.getElementById("next-count").textContent =
+    Number.isFinite(next?.predicted_count) ? next.predicted_count : "—";
+  document.getElementById("next-percent").textContent =
+    Number.isFinite(next?.predicted_percent) ? `${next.predicted_percent}%` : "—";
+  document.getElementById("next-time").textContent = next
+    ? formatTimestamp(next.time)
+    : forecastExpired(predictions, now) ? EXPIRED_FORECAST
+      : "No fully open upcoming hours in this forecast";
+  document.getElementById("next-availability").textContent = next
+    ? forecastStatus(next, now).label : "—";
+}
+
+function svgElement(tag, attributes, text) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+function renderForecastChart(predictions, now) {
+  const container = document.getElementById("forecast-chart");
+  container.replaceChildren();
+  const points = predictions
+    .filter((p) => Number.isFinite(Date.parse(p.time)))
+    .slice().sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+  const counts = points.map((p) => p.predicted_count).filter(Number.isFinite);
+  if (!counts.length) {
+    const empty = document.createElement("p");
+    empty.classList.add("empty-state");
+    empty.textContent = "No occupancy forecast available to chart.";
+    container.appendChild(empty);
+    return;
+  }
+
+  // Fixed SVG coordinates scale with the container. X positions use elapsed time,
+  // not row numbers, so missing hours remain gaps on the timeline.
+  const width = 900;
+  const left = 42;
+  const right = 874;
+  const top = 18;
+  const bottom = 190;
+  const start = Date.parse(points[0].time);
+  const end = Date.parse(points[points.length - 1].time);
+  const duration = end - start + 3600000;
+  const ceiling = Math.max(20, Math.ceil(Math.max(...counts) / 20) * 20);
+  const x = (stamp) => left + (stamp - start) / duration * (right - left);
+  const y = (count) => bottom - count / ceiling * (bottom - top);
+  const svg = svgElement("svg", {
+    viewBox: `0 0 ${width} 240`, role: "img",
+    "aria-label": "Predicted occupancy across all forecast hours, including closed hours. Gray points are elapsed predictions, not actual occupancy. Exact values and availability are in the table below.",
+  });
+
+  for (const p of points) {
+    const status = forecastStatus(p, now).status;
+    if (status !== "closed" && status !== "partial") continue;
+    const hourStart = Date.parse(p.time);
+    svg.appendChild(svgElement("rect", {
+      x: x(hourStart), y: top,
+      width: x(hourStart + 3600000) - x(hourStart),
+      height: bottom - top, class: `chart-${status}-band`,
+    }));
+  }
+  for (let tick = 0; tick <= 4; tick++) {
+    const count = ceiling * tick / 4;
+    svg.appendChild(svgElement("line", { x1: left, x2: right, y1: y(count), y2: y(count), class: "chart-grid" }));
+    svg.appendChild(svgElement("text", { x: left - 10, y: y(count) + 4, "text-anchor": "end", class: "chart-axis-label" }, String(count)));
+  }
+
+  let path = "";
+  let upcomingPath = "";
+  let previousUpcoming = false;
+  let previousTime = null;
+  for (const p of points) {
+    if (!Number.isFinite(p.predicted_count)) {
+      previousTime = null; previousUpcoming = false; continue;
+    }
+    const stamp = Date.parse(p.time);
+    const connected = previousTime !== null && stamp - previousTime <= 3600000;
+    path += `${connected ? "L" : "M"}${x(stamp)},${y(p.predicted_count)} `;
+    if (isUpcoming(p, now)) {
+      upcomingPath += `${connected && previousUpcoming ? "L" : "M"}${x(stamp)},${y(p.predicted_count)} `;
+    }
+    previousUpcoming = isUpcoming(p, now);
+    previousTime = stamp;
+  }
+  svg.appendChild(svgElement("path", { d: path.trim(), class: "chart-line chart-elapsed" }));
+  svg.appendChild(svgElement("path", { d: upcomingPath.trim(), class: "chart-line" }));
+  for (const p of points) {
+    if (!Number.isFinite(p.predicted_count)) continue;
+    const dot = svgElement("circle", {
+      cx: x(Date.parse(p.time)), cy: y(p.predicted_count), r: 3,
+      class: isUpcoming(p, now) ? "chart-point" : "chart-point chart-elapsed",
+    });
+    dot.appendChild(svgElement("title", {},
+      `${formatTimestamp(p.time)}: ${p.predicted_count} people predicted · ${isUpcoming(p, now) ? "Upcoming" : "Elapsed"} · ${forecastStatus(p, now).label}`));
+    svg.appendChild(dot);
+  }
+
+  if (now >= start && now <= start + duration) {
+    svg.appendChild(svgElement("line", {
+      x1: x(now), x2: x(now), y1: top, y2: bottom, class: "chart-now",
+    }));
+    svg.appendChild(svgElement("text", {
+      x: x(now), y: top - 6, "text-anchor": "middle", class: "chart-axis-label",
+    }, "Now"));
+  }
+
+  const ticks = [...new Set([0, Math.round((points.length - 1) / 3),
+    Math.round(2 * (points.length - 1) / 3), points.length - 1])];
+  for (const index of ticks) {
+    const p = points[index];
+    const date = new Date(p.time);
+    const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle";
+    const attrs = { x: x(Date.parse(p.time)), "text-anchor": anchor, class: "chart-axis-label" };
+    svg.appendChild(svgElement("text", { ...attrs, y: bottom + 22 }, date.toLocaleTimeString([], {
+      timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
+    })));
+    svg.appendChild(svgElement("text", { ...attrs, y: bottom + 39 }, date.toLocaleDateString([], {
+      timeZone: "America/New_York", month: "short", day: "numeric",
+    })));
+  }
+  container.appendChild(svg);
 }
 
 function createCapacityCell(percent) {
@@ -214,7 +397,9 @@ function forecastStatus(prediction, now) {
 }
 
 function isQuietHourCandidate(prediction, now) {
-  return prediction.scheduled_status === "open"
+  return isUpcoming(prediction, now)
+    && prediction.facility_status === "open"
+    && prediction.scheduled_status === "open"
     && forecastStatus(prediction, now).status === "open"
     && Number.isFinite(prediction.predicted_count);
 }
@@ -260,5 +445,117 @@ document.getElementById("show-closed-hours").onchange = renderSelectedLocation;
 
 loadPredictions();
 
-// Recheck forecast-row live expiry; current-status freshness comes from the backend snapshot.
+// Advance upcoming recommendations and chart timing without fetching or refreshing data.
+// Current-status freshness still comes from the backend snapshot.
 setInterval(renderSelectedLocation, 30000);
+
+// Historical evaluation is independent of current forecasts and their availability.
+let evaluationHistory = null;
+let historyMessage = "Loading backtested accuracy…";
+const HISTORY_HORIZON = 6;
+
+async function loadEvaluationHistory() {
+  try {
+    const response = await fetch("http://localhost:5000/api/evaluation-history?horizon=6", { method: "GET" });
+    if (!response.ok) throw new Error(`History unavailable: HTTP ${response.status}`);
+    const data = await response.json();
+    if (data.evaluation_type !== "walk_forward" || !Array.isArray(data.rows)) {
+      throw new Error("Invalid walk-forward history");
+    }
+    evaluationHistory = data;
+  } catch (error) {
+    console.error("Could not load evaluation history:", error);
+    historyMessage = "Backtested accuracy is not available yet. Run evaluation to export its scored predictions.";
+  }
+  renderEvaluationHistory(document.getElementById("location-select").value);
+}
+
+function renderEvaluationHistory(locationName) {
+  const container = document.getElementById("history-chart");
+  const summary = document.getElementById("history-summary");
+  container.replaceChildren();
+  document.getElementById("history-location").textContent = locationName || "Choose a location";
+  if (!evaluationHistory) {
+    summary.textContent = historyMessage;
+    return;
+  }
+  // Keep the horizon fixed. Never average predictions issued at different lead times.
+  const rows = evaluationHistory.rows.filter((row) =>
+    row.location_name === locationName && row.horizon_hours === HISTORY_HORIZON
+    && Number.isFinite(Date.parse(row.target_time))
+    && Number.isFinite(row.actual_count) && Number.isFinite(row.predicted_count))
+    .sort((a, b) => Date.parse(a.target_time) - Date.parse(b.target_time));
+  if (!rows.length) {
+    summary.textContent = "No scored 6-hour-ahead walk-forward predictions for this location.";
+    return;
+  }
+  const mae = rows.reduce((total, row) =>
+    total + Math.abs(row.predicted_count - row.actual_count), 0) / rows.length;
+  const scope = evaluationHistory.config?.open_only
+    ? "Historical open-hours evaluation (unknown open flags retained)"
+    : "All-hours evaluation";
+  summary.textContent = `MAE ${mae.toFixed(2)} occupants · ${rows.length} scored predictions · ${formatTimestamp(rows[0].target_time)} – ${formatTimestamp(rows[rows.length - 1].target_time)} · ${scope}. Only rows scored for every baseline are included.`;
+  renderHistoryChart(container, rows);
+}
+
+function renderHistoryChart(container, rows) {
+  const start = Date.parse(rows[0].target_time);
+  const end = Date.parse(rows[rows.length - 1].target_time);
+  const duration = Math.max(3600000, end - start);
+  // Give each day room to read; long histories scroll rather than compress hourly peaks.
+  const width = Math.max(900, Math.ceil(duration / 86400000) * 100);
+  const left = 42, right = width - 24, top = 18, bottom = 190;
+  const ceiling = Math.max(20, Math.ceil(Math.max(...rows.flatMap((r) =>
+    [r.actual_count, r.predicted_count])) / 20) * 20);
+  const floor = Math.min(0, Math.floor(Math.min(...rows.map((r) => r.predicted_count)) / 20) * 20);
+  const x = (time) => left + (time - start) / duration * (right - left);
+  const y = (count) => bottom - (count - floor) / (ceiling - floor) * (bottom - top);
+  const svg = svgElement("svg", {
+    viewBox: `0 0 ${width} 240`, role: "img",
+    "aria-label": "Walk-forward prediction vs. actual occupancy, fixed at 6 hours ahead. Gaps indicate missing scored hours.",
+  });
+  svg.style.width = `${width}px`;
+  svg.style.minWidth = "100%";
+  for (let tick = 0; tick <= 4; tick++) {
+    const count = floor + (ceiling - floor) * tick / 4;
+    svg.appendChild(svgElement("line", {
+      x1: left, x2: right, y1: y(count), y2: y(count), class: "chart-grid",
+    }));
+    svg.appendChild(svgElement("text", {
+      x: left - 10, y: y(count) + 4, "text-anchor": "end", class: "chart-axis-label",
+    }, String(count)));
+  }
+  for (const [field, className, label] of [
+    ["actual_count", "history-actual", "Actual observed occupancy"],
+    ["predicted_count", "history-predicted", "6-hour-ahead walk-forward prediction"],
+  ]) {
+    let path = "", previous = null;
+    for (const row of rows) {
+      const time = Date.parse(row.target_time);
+      // Missing scored hours and fold boundaries should not imply continuous evidence.
+      const connected = previous && time - Date.parse(previous.target_time) === 3600000
+        && row.fold_cutoff === previous.fold_cutoff;
+      path += `${connected ? "L" : "M"}${x(time)},${y(row[field])} `;
+      const dot = svgElement("circle", {
+        cx: x(time), cy: y(row[field]), r: 2, class: className,
+      });
+      dot.appendChild(svgElement("title", {},
+        `${formatTimestamp(row.target_time)} · ${label}: ${row[field]} people`));
+      svg.appendChild(dot);
+      previous = row;
+    }
+    svg.appendChild(svgElement("path", { d: path.trim(), class: `chart-line ${className}` }));
+  }
+  const tickCount = Math.max(1, Math.floor(width / 150));
+  for (let tick = 0; tick <= tickCount; tick++) {
+    const time = start + duration * tick / tickCount;
+    svg.appendChild(svgElement("text", {
+      x: x(time), y: bottom + 25,
+      "text-anchor": tick === 0 ? "start" : tick === tickCount ? "end" : "middle",
+      class: "chart-axis-label",
+    }, formatTimestamp(new Date(time).toISOString())));
+  }
+  container.appendChild(svg);
+}
+
+loadEvaluationHistory();
