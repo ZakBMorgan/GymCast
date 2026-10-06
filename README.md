@@ -13,7 +13,7 @@ and activity at other campus locations to estimate the next 24 hours.
 Evaluated across four weekly folds, scoring open hours at forecast horizons of
 1–24 hours. The strongest overall baseline was the same hour last week.
 
-**Working today:** a forecasting pipeline, JSON API, and basic local frontend
+**Working today:** a forecasting pipeline, JSON API, and responsive local frontend
 with a location selector and hourly occupancy table. Availability labels distinguish
 closed, partial, unknown, and scheduled-open hours. Quietest-hour highlights use
 fully scheduled-open hours; current GoBoard evidence is shown when available.
@@ -130,6 +130,7 @@ The API runs at `http://localhost:5000`:
 | Endpoint | Behavior |
 |---|---|
 | `GET /api/predictions` | Reads the saved `outputs/predictions.json`; does not run the model. |
+| `GET /api/evaluation-history?horizon=6` | Reads scored walk-forward history for one horizon; no evaluation runs on request. |
 | `POST /api/refresh` | Rebuilds the hourly panel and predictions using the existing model. |
 
 Refresh does not collect observations or retrain. Keep collection running
@@ -143,6 +144,16 @@ From `src/`:
 ../venv/bin/python evaluate.py --folds 4 --test-days 7 --max-horizon 24 \
   --report-out ../outputs/eval.json
 ```
+
+Evaluation also writes `outputs/evaluation_predictions.json`, preserving every
+scored location/target/horizon row from the fold's model. Use
+`--predictions-out PATH` to change the destination, or `--predictions-out ''` to
+disable export. The frontend's **How GymCast performs** section compares actual
+occupancy with 6-hour-ahead walk-forward predictions for the selected location,
+with MAE for that displayed series. These are backtests, not historical live
+forecasts. Long histories scroll horizontally; missing scored hours remain gaps.
+If the export is absent, current forecasts still work and history shows an empty state.
+Restart Flask after updating it to register the history endpoint.
 
 Defaults require roughly 28 days of history for one fold: 21 training days plus
 7 test days. More history allows more folds. The report gives MAE (average
@@ -162,6 +173,7 @@ From the repository root:
 ```bash
 venv/bin/python tests/test_pipeline.py
 venv/bin/python tests/test_availability.py
+venv/bin/python tests/test_evaluation_history.py
 node tests/test_frontend.js     # frontend rendering checks; requires Node.js
 ```
 
@@ -211,7 +223,9 @@ The collector reads public GoBoard facility counts for Northeastern locations.
 It stores aggregate occupancy observations, location metadata, and polling
 errors. Missing hourly observations remain `NaN`, not zero.
 
-- **Dashboard:** closed hours are hidden by default with a Show closed hours toggle.
+- **Dashboard:** the v2 view combines a native occupancy chart, compact forecast
+  summary, and detailed availability table. Closed hours are hidden in the table
+  by default with a Show closed hours toggle; the chart retains the full timeline.
   The table groups hours by day, summarizes up to three quietest fully open hours,
   preserves every forecast hour in the data, labels availability,
   and highlights only fully scheduled-open hours. Fresh live closures exclude
