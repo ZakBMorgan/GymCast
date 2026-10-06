@@ -13,6 +13,8 @@ and activity at other campus locations to estimate the next 24 hours.
 Evaluated across four weekly folds, scoring open hours at forecast horizons of
 1–24 hours. The strongest overall baseline was the same hour last week.
 
+![GymCast desktop dashboard showing occupancy forecasts, quieter-time recommendations, and walk-forward model performance](docs/images/gymcast-desktop.png)
+
 **Working today:** a forecasting pipeline, JSON API, and responsive local frontend
 with a location selector and hourly occupancy table. Availability labels distinguish
 closed, partial, unknown, and scheduled-open hours. Quietest-hour highlights use
@@ -74,6 +76,34 @@ target-hour time and calendar features are known in advance. The saved bundle
 also preserves the category vocabulary and backend-specific input representation.
 The [pipeline walkthrough](docs/pipeline_walkthrough.md) explains each boundary
 with examples.
+
+## Interface
+
+GymCast is designed to make the forecast useful at a glance: choose a recreation
+area, see the next fully open hour, compare quieter upcoming times, and inspect
+the full 24-hour occupancy forecast.
+
+### Desktop
+
+<img
+  src="docs/images/gymcast-desktop.png"
+  alt="GymCast desktop dashboard with occupancy forecasts, facility availability, and walk-forward model performance"
+  width="100%"
+/>
+
+### Mobile
+
+<p align="center">
+  <img
+    src="docs/images/gymcast-mobile.png"
+    alt="GymCast responsive mobile interface"
+    width="390"
+  />
+</p>
+
+The interface includes availability-aware recommendations, capacity estimates,
+a responsive hourly forecast table, and historical walk-forward predictions
+compared with actual observed occupancy.
 
 ## Run it locally
 

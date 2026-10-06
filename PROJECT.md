@@ -9,7 +9,8 @@ Shared project context. Read [AGENTS.md](AGENTS.md) for working conventions,
 Help Northeastern students choose when to work out by forecasting hourly
 occupancy at Marino Center and SquashBusters locations. Default output is the
 next 24 hours per location. The pipeline, JSON API, and a basic local HTML/CSS/JavaScript frontend exist.
-The frontend displays location forecasts and availability, with quietest-hour
+The frontend uses a responsive, restrained v2 layout with a native SVG chart,
+forecast summary, and availability table, with quietest-hour
 highlighting restricted to fully scheduled-open hours.
 
 ## Architecture and data flow
@@ -184,6 +185,24 @@ expiry even when reading cached JSON. See
 [facility availability](docs/facility_availability.md) for schemas and semantics.
 The standalone availability tests supplement the pipeline tests.
 
+### Historical accuracy
+
+Evaluation optionally collects the exact model outputs on the unchanged common
+scoring mask; the CLI exports them by default to
+`outputs/evaluation_predictions.json`. Rows retain target, origin, horizon, and
+fold cutoff; no cross-horizon averaging or production-model reconstruction.
+`GET /api/evaluation-history?horizon=6` filters the saved export without inference.
+The frontend loads history separately and displays actuals versus fixed 6-hour
+walk-forward predictions for the selected location, with series-specific MAE,
+scope and date range. Unscored hours and fold boundaries remain chart gaps.
+Current forecasting, availability, models, splits, baselines, and metrics are unchanged.
+Run `venv/bin/python tests/test_evaluation_history.py` for export/API checks.
+The local export was generated with four default walk-forward folds: 117,791
+scored rows, including 5,112 at horizon 6. This is a new evaluation run, not
+recovered predictions from the older aggregate report. Export/API and frontend
+checks pass; saved-data desktop and 390px mobile previews show both series without
+page-wide overflow.
+
 ### Raw timestamp correction
 
 Legacy naive raw timestamps now mean UTC, not New York local time. The collector
@@ -206,9 +225,20 @@ using artifacts produced under the previous timestamp interpretation.
   Expired current evidence is presented as a timestamped schedule snapshot.
   A compact summary lists up to three quietest fully open hours; local date
   headings group the table. Metadata is compact and explanations are collapsible.
+  The v2 layout uses CSS tokens and one continuous forecast surface; a native
+  SVG chart includes all hours with closed/partial shading and preserves gaps.
+  Summary metrics select the earliest strictly future forecast with `facility_status == "open"`,
+  labelled Next fully open hour. Quietest recommendations also exclude elapsed hours.
+  Browser time is rechecked every 30 seconds; metadata shows generation age and an
+  expired-horizon warning. The complete chart retains elapsed predictions in gray
+  with a Now marker when in range. Loading uses GET only, never an automatic refresh POST.
+  Summaries have no-upcoming/open-hours fallbacks. They are not live occupancy
+  (which is absent from the API). No chart libraries or backend changes.
   Dependency-free Node rendering checks cover row/value preservation, status
-  labels, highlighting, expiry, and location switching; browser appearance still
-  needs visual review.
+  labels, highlighting, expiry, location switching, and chart rendering. Desktop
+  and 390px mobile previews were inspected in headless Chrome using a saved-data
+  fixture; neither viewport had page-wide overflow. Live API integration was
+  not exercised by this visual check.
 - The calendar join works, but `academic_calendar.csv` is header-only. Populate
   known dates and measure whether the feature helps; it is currently `unknown`.
 - No automatic retraining or prediction intervals. Verify and maintain schedule
@@ -223,7 +253,7 @@ using artifacts produced under the previous timestamp interpretation.
 
 1. Repeat walk-forward evaluation on later data and inspect coverage and bias.
 2. Populate the academic calendar and evaluate on additional periods.
-3. Review the availability table in the browser, including narrow screens and stale data.
+3. Connect the v2 frontend to the deployed API and review freshness on live data.
 4. Define completed-hour refresh timing and automate collection supervision,
    prediction refresh, and retraining as separate jobs.
 5. Consider intervals and forecast weather inputs after baseline validation.
