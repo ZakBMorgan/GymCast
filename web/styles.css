@@ -188,10 +188,7 @@ td:nth-child(3) { width: 25%; }
   .site-footer { flex-direction: column; gap: 4px; }
 }
 
-/* Elapsed values remain inspectable, but are never presented as observations. */
-.chart-elapsed { stroke: var(--closed); stroke-dasharray: 3 3; }
 .chart-now { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 4; }
-.legend-elapsed { border-top: 2px dashed var(--closed); margin-top: 7px; }
 #forecast-freshness { flex-basis: 100%; }
 #forecast-freshness[data-expired="true"] { color: var(--warning); font-weight: 500; }
 

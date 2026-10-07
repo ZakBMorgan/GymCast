@@ -209,10 +209,18 @@ async function main(hostname, expectedBase) {
   assert(forecastRows().slice(0, 5).every((row) => !row.classList.has("quiet-hour")));
   assert.match(ids["forecast-freshness"].textContent, /Generated 1 hr ago/);
   const timedChart = ids["forecast-chart"].children[0];
+  const forecastDots = timedChart.children.filter((n) => n.tag === "circle");
+  assert.equal(forecastDots.length, timeline.length, "all current forecast points retained");
+  assert(forecastDots.every((n) => n.attributes.class === "chart-point"));
+  const forecastPaths = timedChart.children.filter((n) => n.tag === "path");
+  assert.equal(forecastPaths.length, 1, "one consistent forecast line");
+  assert.equal(forecastPaths[0].attributes.class, "chart-line");
   assert.equal(timedChart.children.filter((n) =>
-    n.tag === "circle" && n.attributes.class.includes("chart-elapsed")).length, 2);
+    n.attributes.class === "chart-closed-band").length, 1);
+  assert.equal(timedChart.children.filter((n) =>
+    n.attributes.class === "chart-partial-band").length, 1);
   assert.equal(timedChart.children.filter((n) => n.attributes.class === "chart-now").length, 1);
-  assert.match(timedChart.textContent, /Elapsed.*Upcoming/);
+  assert.doesNotMatch(timedChart.textContent, /Elapsed|Upcoming/);
   context.renderLocation(timedData, "Timed", Date.parse("2026-10-05T06:00:00Z"));
   assert.equal(ids["next-count"].textContent, "—");
   assert.equal(ids["next-percent"].textContent, "—");

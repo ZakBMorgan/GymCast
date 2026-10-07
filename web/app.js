@@ -252,7 +252,7 @@ function renderForecastChart(predictions, now) {
   const y = (count) => bottom - count / ceiling * (bottom - top);
   const svg = svgElement("svg", {
     viewBox: `0 0 ${width} 240`, role: "img",
-    "aria-label": "Predicted occupancy across all forecast hours, including closed hours. Gray points are elapsed predictions, not actual occupancy. Exact values and availability are in the table below.",
+    "aria-label": "Predicted occupancy across all forecast hours, including closed hours. Exact values and availability are in the table below.",
   });
 
   for (const p of points) {
@@ -272,32 +272,26 @@ function renderForecastChart(predictions, now) {
   }
 
   let path = "";
-  let upcomingPath = "";
-  let previousUpcoming = false;
   let previousTime = null;
   for (const p of points) {
     if (!Number.isFinite(p.predicted_count)) {
-      previousTime = null; previousUpcoming = false; continue;
+      previousTime = null;
+      continue;
     }
     const stamp = Date.parse(p.time);
     const connected = previousTime !== null && stamp - previousTime <= 3600000;
     path += `${connected ? "L" : "M"}${x(stamp)},${y(p.predicted_count)} `;
-    if (isUpcoming(p, now)) {
-      upcomingPath += `${connected && previousUpcoming ? "L" : "M"}${x(stamp)},${y(p.predicted_count)} `;
-    }
-    previousUpcoming = isUpcoming(p, now);
     previousTime = stamp;
   }
-  svg.appendChild(svgElement("path", { d: path.trim(), class: "chart-line chart-elapsed" }));
-  svg.appendChild(svgElement("path", { d: upcomingPath.trim(), class: "chart-line" }));
+  svg.appendChild(svgElement("path", { d: path.trim(), class: "chart-line" }));
   for (const p of points) {
     if (!Number.isFinite(p.predicted_count)) continue;
     const dot = svgElement("circle", {
       cx: x(Date.parse(p.time)), cy: y(p.predicted_count), r: 3,
-      class: isUpcoming(p, now) ? "chart-point" : "chart-point chart-elapsed",
+      class: "chart-point",
     });
     dot.appendChild(svgElement("title", {},
-      `${formatTimestamp(p.time)}: ${p.predicted_count} people predicted · ${isUpcoming(p, now) ? "Upcoming" : "Elapsed"} · ${forecastStatus(p, now).label}`));
+      `${formatTimestamp(p.time)}: ${p.predicted_count} people predicted · ${forecastStatus(p, now).label}`));
     svg.appendChild(dot);
   }
 
