@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gymcast.zakbmorgan.dev/sitemap.xml
