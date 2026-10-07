@@ -230,8 +230,9 @@ using artifacts produced under the previous timestamp interpretation.
   Summary metrics select the earliest strictly future forecast with `facility_status == "open"`,
   labelled Next fully open hour. Quietest recommendations also exclude elapsed hours.
   Browser time is rechecked every 30 seconds; metadata shows generation age and an
-  expired-horizon warning. The complete chart retains elapsed predictions in gray
-  with a Now marker when in range. Loading uses GET only, never an automatic refresh POST.
+  expired-horizon warning. The current production forecast chart uses one consistent
+  line for all points, retains closed/partial shading, and shows a Now marker when
+  in range. Historical comparisons belong only to How GymCast performs. Loading uses GET only, never an automatic refresh POST.
   Summaries have no-upcoming/open-hours fallbacks. They are not live occupancy
   (which is absent from the API). No chart libraries or backend changes.
   Dependency-free Node rendering checks cover row/value preservation, status
