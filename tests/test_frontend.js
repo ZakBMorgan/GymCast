@@ -28,7 +28,7 @@ function element(tag) {
   };
 }
 
-async function main() {
+async function main(hostname, expectedBase) {
   const now = Date.now();
   const iso = (minutes) => new Date(now + minutes * 60000).toISOString();
   const prediction = (status, count, extra = {}) => ({
@@ -71,6 +71,7 @@ async function main() {
   let interval;
   const requests = [];
   const context = vm.createContext({
+    window: { location: { hostname } },
     console: { log() {}, error() {} }, Date,
     document: { getElementById: (id) => ids[id], createElement: element,
       createElementNS: (_namespace, tag) => element(tag) },
@@ -257,12 +258,22 @@ async function main() {
   assert.match(ids["history-summary"].textContent, /No scored 6-hour-ahead/);
   assert.equal(ids["history-chart"].children.length, 0);
   assert.deepEqual(requests, [
-    { url: "http://localhost:5000/api/predictions", method: "GET" },
-    { url: "http://localhost:5000/api/evaluation-history?horizon=6", method: "GET" },
+    { url: `${expectedBase}/api/predictions`, method: "GET" },
+    { url: `${expectedBase}/api/evaluation-history?horizon=6`, method: "GET" },
   ],
     "page load reads predictions; renders, toggles, and timers never POST refresh");
   assert.equal(JSON.stringify(data), original, "rendering never mutates predictions");
-  console.log("PASS: availability rendering, unchanged values, highlighting, live expiry, and selector");
+  console.log(`PASS (${hostname}): API URLs, rendering, history, unchanged values, and GET-only loading`);
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+async function run() {
+  for (const [hostname, expectedBase] of [
+    ["localhost", "http://127.0.0.1:5000"],
+    ["127.0.0.1", "http://127.0.0.1:5000"],
+    ["gymcast.example", ""],
+  ]) {
+    await main(hostname, expectedBase);
+  }
+}
+
+run().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1,5 +1,9 @@
 let loadedData = null;
 
+// Local development uses a separate Flask server; production proxies /api on this origin.
+const API_BASE = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+  ? "http://127.0.0.1:5000" : "";
+
 const EXPIRED_FORECAST =
   "Forecast is out of date. Refresh prediction data to see upcoming hours.";
 
@@ -9,7 +13,7 @@ async function loadPredictions() {
   statusElement.textContent = "Loading forecasts…";
 
   try {
-    const response = await fetch("http://localhost:5000/api/predictions", { method: "GET" });
+    const response = await fetch(`${API_BASE}/api/predictions`, { method: "GET" });
 
     if (!response.ok) {
       throw new Error(`Request failed: HTTP ${response.status}`);
@@ -456,7 +460,7 @@ const HISTORY_HORIZON = 6;
 
 async function loadEvaluationHistory() {
   try {
-    const response = await fetch("http://localhost:5000/api/evaluation-history?horizon=6", { method: "GET" });
+    const response = await fetch(`${API_BASE}/api/evaluation-history?horizon=6`, { method: "GET" });
     if (!response.ok) throw new Error(`History unavailable: HTTP ${response.status}`);
     const data = await response.json();
     if (data.evaluation_type !== "walk_forward" || !Array.isArray(data.rows)) {
