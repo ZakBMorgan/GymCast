@@ -15,12 +15,13 @@ Evaluated across four weekly folds, scoring open hours at forecast horizons of
 
 ![GymCast desktop dashboard showing occupancy forecasts, quieter-time recommendations, and walk-forward model performance](docs/images/gymcast-desktop.png)
 
-**Working today:** a forecasting pipeline, JSON API, and responsive local frontend
+**Working today:** a forecasting pipeline, JSON API, and responsive deployed frontend
 with a location selector and hourly occupancy table. Availability labels distinguish
 closed, partial, unknown, and scheduled-open hours. Quietest-hour highlights use
 fully scheduled-open hours; current GoBoard evidence is shown when available.
 
-[Run it locally](#run-it-locally) · [Understand the pipeline](docs/pipeline_walkthrough.md) ·
+[Live demo](https://gymcast.zakbmorgan.dev) · [Run it locally](#run-it-locally) ·
+[Understand the pipeline](docs/pipeline_walkthrough.md) ·
 [Architecture and current state](PROJECT.md)
 
 ## What makes a forecast useful?
@@ -45,25 +46,35 @@ performance can vary by horizon and evaluation period. See
 ```text
 GoBoard observations, polled about every 5 minutes
                        ↓
-              collector.py → raw CSV
+               collector.py → raw CSV
                        ↓
-              features.py → hourly panel
+               features.py → hourly panel
                        │
-         ┌─────────────┼──────────────────┐
-         ↓             ↓                  ↓
-      train.py     evaluate.py        predict.py
-         ↓         fresh model       panel + saved model
-    saved model    in each fold           ↓
-                   vs. baselines    predictions.json
-                                          ↓
-                                      serve.py
-                                          ↓
-                                     local frontend
+          ┌────────────┼──────────────────┐
+          ↓            ↓                  ↓
+       train.py    evaluate.py        predict.py
+          ↓        fresh model       panel + saved model
+     saved model   in each fold            ↓
+                   vs. baselines     predictions.json
+                                           ↓
+                                       Flask API
+                                           ↓
+                                        Gunicorn
+                                           ↓
+                                         Nginx
+                                      ↙          ↘
+                                 frontend       /api/*
+                                      \          /
+                                       web browser
 ```
 
 Training creates the saved model. Evaluation measures the modeling approach
 independently of that artifact. Prediction applies the saved model to the latest
 observations; evaluation is not a required step between training and prediction.
+
+In production, collection runs continuously while a systemd timer rebuilds the
+hourly features and current forecast every 15 minutes. Retraining remains a
+separate manual process.
 
 One model handles all forecast horizons, using the horizon itself as an input.
 It uses LightGBM when available, with scikit-learn's
@@ -82,6 +93,11 @@ with examples.
 GymCast is designed to make the forecast useful at a glance: choose a recreation
 area, see the next fully open hour, compare quieter upcoming times, and inspect
 the full 24-hour occupancy forecast.
+
+The live deployment runs on a DigitalOcean droplet behind Nginx and Gunicorn.
+GoBoard observations are collected continuously, and forecasts are regenerated
+automatically every 15 minutes. The frontend reads the latest prepared forecast
+through the Flask API.
 
 ### Desktop
 
@@ -150,7 +166,7 @@ cd src
 ../venv/bin/python serve.py
 ```
 
-The defaults resolve from `src/` to `../data`, `../models`, and `../outputs`.
+The defaults resolve from `src/` to `../data`, `../models`, and `../outputs/`.
 Training needs at least 50 supervised rows with observed origins and warns when
 history spans less than 14 days. Early runs are smoke tests; the weekly lag needs
 at least a week of history before it has values.
@@ -210,7 +226,8 @@ node tests/test_frontend.js     # frontend rendering checks; requires Node.js
 The pipeline tests generate synthetic occupancy data and cover leakage, fold
 boundaries, category consistency, serving features, and a model smoke test.
 The separate availability suite checks schedule boundaries, overrides, DST,
-live-evidence expiry, and unchanged occupancy output. Pytest is optional: `venv/bin/python -m pytest tests/` if installed.
+live-evidence expiry, and unchanged occupancy output. Pytest is optional:
+`venv/bin/python -m pytest tests/` if installed.
 
 ## Prediction output
 
@@ -253,7 +270,7 @@ The collector reads public GoBoard facility counts for Northeastern locations.
 It stores aggregate occupancy observations, location metadata, and polling
 errors. Missing hourly observations remain `NaN`, not zero.
 
-- **Dashboard:** the v2 view combines a native occupancy chart, compact forecast
+- **Dashboard:** the current view combines a native occupancy chart, compact forecast
   summary, and detailed availability table. Closed hours are hidden in the table
   by default with a Show closed hours toggle; the chart retains the full timeline.
   The table groups hours by day, summarizes up to three quietest fully open hours,
@@ -266,8 +283,9 @@ errors. Missing hourly observations remain `NaN`, not zero.
   `data/academic_calendar.csv` is a header-only `date,semester_phase` template.
   Fill it with known dates; missing dates become `unknown`. `features.py` and
   `predict.py` accept `--calendar PATH` or `--calendar ''` to skip it.
-- **Operations:** collection, refresh, and retraining are separate processes;
-  automatic retraining is not implemented.
+- **Operations:** collection runs continuously on the production droplet, while
+  feature construction and prediction refresh automatically every 15 minutes.
+  Retraining remains a separate manual process.
 - **Forecast range:** default training and prediction cover 1–24 hours.
   `train.py --max-horizon N` and `predict.py --hours-ahead N` change that range.
   Prediction warns, but proceeds, beyond the trained range. Seasonal lag inputs
@@ -282,7 +300,7 @@ errors. Missing hourly observations remain `NaN`, not zero.
 | `data/` | Local raw CSVs and hourly panel; committed calendar template |
 | `models/` | Generated model bundle, gitignored |
 | `outputs/` | Generated forecasts and evaluation reports, gitignored |
-| `web/` | Local HTML/CSS/JavaScript forecast frontend |
+| `web/` | Responsive HTML/CSS/JavaScript frontend served by Nginx in production |
 | [Pipeline walkthrough](docs/pipeline_walkthrough.md) | Detailed explanation with examples |
 | [PROJECT.md](PROJECT.md) | Concise architecture, methodology, and current state |
 | [AGENTS.md](AGENTS.md) | Coding conventions and correctness requirements |
