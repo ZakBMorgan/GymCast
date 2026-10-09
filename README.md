@@ -1,28 +1,52 @@
+<div align="center">
+
+<img src="web/favicon.svg" alt="GymCast occupancy-bars logo" width="76" />
+
 # GymCast
 
-**Spend less time waiting for equipment. Find a better time to work out.**
+**Find a quieter time to work out.**
 
-Heading to Marino after class, or waiting until later? GymCast forecasts hourly
-occupancy at Northeastern's Marino Center and SquashBusters locations so you can
-plan around the crowds. It combines recent counts, daily and weekly patterns,
-and activity at other campus locations to estimate the next 24 hours.
+Hourly occupancy forecasts for Northeastern University's Marino Center and SquashBusters.
 
-**117K+ leak-resistant walk-forward predictions · MAE: 7.57 occupants ·
-10.9% lower MAE than the strongest overall baseline**
+[**Live Website**](https://gymcast.zakbmorgan.dev) · [**Explore the pipeline**](docs/pipeline_walkthrough.md) · [**Run locally**](#run-it-locally)
 
-Evaluated across four weekly folds, scoring open hours at forecast horizons of
-1–24 hours. The strongest overall baseline was the same hour last week.
+</div>
 
-![GymCast desktop dashboard showing occupancy forecasts, quieter-time recommendations, and walk-forward model performance](docs/images/gymcast-desktop.png)
+## At a glance
 
-**Working today:** a forecasting pipeline, JSON API, and responsive deployed frontend
-with a location selector and hourly occupancy table. Availability labels distinguish
-closed, partial, unknown, and scheduled-open hours. Quietest-hour highlights use
-fully scheduled-open hours; current GoBoard evidence is shown when available.
+GymCast combines recent facility counts, daily and weekly patterns, and
+activity across campus locations to forecast occupancy for the next 24 hours.
+It recommends quieter **fully scheduled-open hours**, displays predicted people
+and capacity usage, and makes forecast freshness visible. Predictions are
+estimates—not live counts or guaranteed availability.
 
-[Live demo](https://gymcast.zakbmorgan.dev) · [Run it locally](#run-it-locally) ·
-[Understand the pipeline](docs/pipeline_walkthrough.md) ·
-[Architecture and current state](PROJECT.md)
+| Walk-forward predictions | Model MAE | Improvement vs. strongest overall baseline |
+|:--|:--|:--|
+| **117,791** | **7.57 people** | **10.9% lower MAE** |
+
+Results from four weekly evaluation folds across 1–24-hour horizons, scored
+on eligible open hours. The strongest overall baseline was the same hour last
+week (MAE 8.51). These are aggregate backtest results, not a guarantee of
+future accuracy.
+
+## Preview
+
+### Desktop
+
+![GymCast desktop dashboard with quietest-hour recommendations and occupancy timeline](docs/images/gymcast-desktop.png)
+
+### Mobile
+
+<p align="center">
+  <img src="docs/images/gymcast-mobile.png" alt="GymCast mobile dashboard showing occupancy recommendations" width="360" />
+</p>
+
+## Highlights
+
+- **Availability-aware recommendations:** highlights quiet upcoming hours only when scheduled fully open.
+- **Hourly forecasts:** predicted people and capacity usage across a 24-hour horizon.
+- **Transparent evaluation:** walk-forward backtests against four baselines, with historical actual-versus-predicted comparisons.
+- **Production deployment:** continuously collected observations, automated forecast refreshes every 15 minutes, Flask API, Gunicorn, and Nginx.
 
 ## What makes a forecast useful?
 
@@ -87,39 +111,6 @@ target-hour time and calendar features are known in advance. The saved bundle
 also preserves the category vocabulary and backend-specific input representation.
 The [pipeline walkthrough](docs/pipeline_walkthrough.md) explains each boundary
 with examples.
-
-## Interface
-
-GymCast is designed to make the forecast useful at a glance: choose a recreation
-area, see the next fully open hour, compare quieter upcoming times, and inspect
-the full 24-hour occupancy forecast.
-
-The live deployment runs on a DigitalOcean droplet behind Nginx and Gunicorn.
-GoBoard observations are collected continuously, and forecasts are regenerated
-automatically every 15 minutes. The frontend reads the latest prepared forecast
-through the Flask API.
-
-### Desktop
-
-<img
-  src="docs/images/gymcast-desktop.png"
-  alt="GymCast desktop dashboard with occupancy forecasts, facility availability, and walk-forward model performance"
-  width="100%"
-/>
-
-### Mobile
-
-<p align="center">
-  <img
-    src="docs/images/gymcast-mobile.png"
-    alt="GymCast responsive mobile interface"
-    width="390"
-  />
-</p>
-
-The interface includes availability-aware recommendations, capacity estimates,
-a responsive hourly forecast table, and historical walk-forward predictions
-compared with actual observed occupancy.
 
 ## Run it locally
 
