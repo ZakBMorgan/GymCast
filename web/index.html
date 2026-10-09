@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="See hourly occupancy forecasts for Northeastern's Marino Center and SquashBusters and find quieter times to work out.">
+    <meta name="description" content="Hourly occupancy forecasts for Northeastern campus gyms. Find a quieter time to work out.">
     <title>Northeastern Marino Gym Occupancy Forecast | GymCast</title>
-    <link rel="canonical" href="https://gymcast.zakbmorgan.dev/">
     <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -14,7 +14,7 @@
     <header class="site-header">
       <div>
         <h1>GymCast<span class="brand-dot" aria-hidden="true">.</span></h1>
-        <p>Hourly occupancy forecasts for Northeastern’s Marino Center and SquashBusters.</p>
+        <p>Find a better time to work out.</p>
       </div>
       <span class="header-context">Northeastern <span aria-hidden="true">/</span> Campus recreation</span>
     </header>
@@ -22,22 +22,10 @@
     <main>
       <div class="location-toolbar">
         <div class="location-control">
-          <label id="location-label" for="location-select">Choose a location</label>
+          <label for="location-select">Choose a location</label>
           <select id="location-select" disabled>
             <option>Loading locations…</option>
           </select>
-          <div id="location-picker" class="location-picker" hidden>
-            <button id="location-trigger" class="location-trigger" type="button"
-              aria-haspopup="listbox" aria-expanded="false" aria-controls="location-menu"
-              aria-labelledby="location-label location-selected">
-              <span id="location-selected"></span>
-              <svg class="location-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                <path d="M4 6 L8 10 L12 6" />
-              </svg>
-            </button>
-            <div id="location-menu" class="location-menu" role="listbox"
-              aria-labelledby="location-label" hidden></div>
-          </div>
         </div>
         <p id="status" role="status">Forecasts are not loaded yet.</p>
       </div>
@@ -51,21 +39,15 @@
             <p class="data-note">Live occupancy is not included in this forecast feed.</p>
           </div>
           <div class="forecast-metrics" aria-label="Prediction for the next fully open hour">
-            <div class="forecast-target">
+            <div>
               <p class="metric-label">Next fully open hour</p>
-              <p id="next-time" class="target-time">Awaiting forecast</p>
-              <p id="next-availability" class="metric-detail">Availability unknown</p>
+              <p class="metric-value"><span id="next-count">—</span> <span class="metric-unit">people</span></p>
+              <p id="next-time" class="metric-detail">Awaiting forecast</p>
             </div>
-            <div class="capacity-metric">
-              <p class="metric-label">Predicted capacity used</p>
+            <div>
+              <p class="metric-label">Predicted capacity</p>
               <p id="next-percent" class="metric-value">—</p>
-              <div id="next-capacity-track" class="overview-capacity-track" hidden aria-hidden="true">
-                <div id="next-capacity-fill" class="capacity-fill"></div>
-              </div>
-              <p id="next-percent-note" class="metric-detail"></p>
-            </div>
-            <div class="people-metric">
-              <p class="people-value"><span id="next-count">—</span> <span class="metric-unit">people predicted</span></p>
+              <p id="next-availability" class="metric-detail">Availability unknown</p>
             </div>
           </div>
         </section>
@@ -90,8 +72,7 @@
             <h3 id="chart-heading">Forecast timeline</h3>
             <p>Predicted occupancy · People</p>
           </div>
-          <div id="forecast-chart" class="chart-scroll" tabindex="0" aria-describedby="forecast-scroll-hint" aria-label="Occupancy chart; scroll horizontally on small screens"></div>
-          <p id="forecast-scroll-hint" class="chart-scroll-hint" hidden>Swipe or scroll to explore all forecast hours →</p>
+          <div id="forecast-chart" class="chart-scroll" tabindex="0" aria-label="Occupancy chart; scroll horizontally on small screens"></div>
           <div class="chart-legend" aria-label="Chart legend">
             <span><i class="legend-line" aria-hidden="true"></i> Current forecast</span>
             <span><i class="legend-closed" aria-hidden="true"></i> Closed hour</span>
