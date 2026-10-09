@@ -170,6 +170,13 @@ document.addEventListener("pointerdown", (event) => {
   if (!document.getElementById("location-picker").contains(event.target)) closeLocationPicker();
 });
 
+function locationHeading(locationName) {
+  // Only remove a recognizable prefix with an explicit separator; unmatched names stay intact.
+  const match = locationName.match(/^(Marino(?: Center)?|Squash\s*Busters)\s*(?:—|–|-|:)\s*(.+)$/i);
+  return match ? { facility: /^marino/i.test(match[1]) ? "Marino Center" : "SquashBusters",
+    name: match[2] } : { facility: "Your location", name: locationName };
+}
+
 function renderLocation(data, locationName, now = Date.now()) {
   // Preserve history scroll position during the current-forecast clock updates.
   if (document.getElementById("history-location").textContent !== locationName) {
@@ -178,8 +185,9 @@ function renderLocation(data, locationName, now = Date.now()) {
   const predictions = data.locations[locationName];
   const tableBody = document.getElementById("forecast-rows");
 
-  document.getElementById("forecast-heading").textContent =
-    locationName;
+  const heading = locationHeading(locationName);
+  document.getElementById("location-facility").textContent = heading.facility;
+  document.getElementById("forecast-heading").textContent = heading.name;
 
   const origin = data.forecast_origin?.[locationName];
 
@@ -199,7 +207,7 @@ function renderLocation(data, locationName, now = Date.now()) {
   const counts = candidates.map((prediction) => prediction.predicted_count);
   renderForecastFreshness(data, predictions, now);
   renderBestTimes(candidates, predictions, now);
-  renderForecastOverview(predictions, now);
+  renderForecastOverview(predictions, now, candidates[0]);
   renderForecastChart(predictions, now);
 
   const lowestCount = counts.length > 0 ? Math.min(...counts) : null;
@@ -278,50 +286,70 @@ function renderForecastFreshness(data, predictions, now) {
     return;
   }
   if (!predictions.some((p) => isUpcoming(p, now))) {
-    element.textContent = "No upcoming forecast timestamps available.";
+    element.textContent = "No upcoming forecast hours available.";
     return;
   }
   const generated = Date.parse(data.generated_at?.replace(" ", "T"));
   const ageMinutes = Math.floor((now - generated) / 60000);
   element.textContent = Number.isFinite(ageMinutes) && ageMinutes >= 0
-    ? `Generated ${ageMinutes < 60 ? `${ageMinutes} min` : `${Math.floor(ageMinutes / 60)} hr`} ago · Upcoming hours remain in this forecast.`
+    ? `Generated ${ageMinutes < 60 ? `${ageMinutes} min` : `${Math.floor(ageMinutes / 60)} hr`} ago`
     : "Generation time unavailable or ahead of the browser clock.";
 }
 
 function renderBestTimes(candidates, predictions, now) {
+  const best = candidates[0];
+  const hasPercent = Number.isFinite(best?.predicted_percent);
+  document.getElementById("recommended-time").textContent = best
+    ? formatTimestamp(best.time)
+    : forecastExpired(predictions, now) ? EXPIRED_FORECAST
+      : "No upcoming fully open hours with an occupancy estimate are available.";
+  document.getElementById("recommended-values").hidden = !best;
+  document.getElementById("recommended-explanation").hidden = !best;
+  document.getElementById("recommended-count").textContent = best?.predicted_count ?? "—";
+  document.getElementById("recommended-percent").textContent = hasPercent
+    ? `${best.predicted_percent}%` : "—";
+  document.getElementById("recommended-capacity-track").hidden = !hasPercent;
+  document.getElementById("recommended-capacity-fill").style.width =
+    `${hasPercent ? Math.max(0, Math.min(100, best.predicted_percent)) : 0}%`;
+  document.getElementById("recommended-percent-note").textContent = best && !hasPercent
+    ? "Capacity estimate unavailable" : "";
+
   const summary = document.getElementById("quiet-hours-summary");
   summary.replaceChildren();
-  if (!candidates.length) {
+  if (candidates.length < 2) {
     const empty = document.createElement("li");
     empty.classList.add("empty-state");
     empty.textContent = forecastExpired(predictions, now) ? EXPIRED_FORECAST
-      : "No fully scheduled-open upcoming hours are available for a quietest-time comparison.";
+      : best ? "No other fully open upcoming hours to compare."
+        : "No other quiet hours are available in this forecast.";
     summary.appendChild(empty);
     return;
   }
-  for (const prediction of candidates.slice(0, 3)) {
+  // The first ranked hour is featured above; retain the next two eligible alternatives.
+  for (const prediction of candidates.slice(1, 3)) {
     const item = document.createElement("li");
-    if (summary.children.length === 0) {
-      item.classList.add("best-recommendation");
-      const label = document.createElement("span");
-      label.classList.add("recommendation-label");
-      label.textContent = "Quietest upcoming";
-      item.appendChild(label);
-    }
     const time = document.createElement("strong");
     time.textContent = formatTimestamp(prediction.time);
     const count = document.createElement("span");
-    count.textContent = `${prediction.predicted_count} people predicted`;
-    item.append(time, count);
+    count.textContent = `${prediction.predicted_count} people expected`;
+    const percent = document.createElement("span");
+    percent.textContent = Number.isFinite(prediction.predicted_percent)
+      ? `${prediction.predicted_percent}% capacity used` : "Capacity estimate unavailable";
+    item.append(time, count, percent);
     summary.appendChild(item);
   }
 }
 
-function renderForecastOverview(predictions, now) {
+function renderForecastOverview(predictions, now, quietest = null) {
   // Select a copy so summary ordering never changes the chart/table data.
   const next = predictions
     .filter((prediction) => isUpcoming(prediction, now) && prediction.facility_status === "open")
     .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))[0];
+  const sameHour = Boolean(next && quietest && Date.parse(next.time) === Date.parse(quietest.time));
+  document.getElementById("next-values").hidden = !next || sameHour;
+  document.getElementById("next-recommendation-note").hidden = !sameHour;
+  document.getElementById("next-recommendation-note").textContent = sameHour
+    ? "Also the quietest hour recommended above." : "";
   document.getElementById("next-count").textContent =
     Number.isFinite(next?.predicted_count) ? next.predicted_count : "—";
   document.getElementById("next-percent").textContent =
@@ -591,7 +619,7 @@ setInterval(renderSelectedLocation, 30000);
 
 // Historical evaluation is independent of current forecasts and their availability.
 let evaluationHistory = null;
-let historyMessage = "Loading backtested accuracy…";
+let historyMessage = "Loading past prediction accuracy…";
 const HISTORY_HORIZON = 6;
 
 async function loadEvaluationHistory() {
@@ -605,7 +633,7 @@ async function loadEvaluationHistory() {
     evaluationHistory = data;
   } catch (error) {
     console.error("Could not load evaluation history:", error);
-    historyMessage = "Backtested accuracy is not available yet. Run evaluation to export its scored predictions.";
+    historyMessage = "Past prediction accuracy is not available yet.";
   }
   renderEvaluationHistory(document.getElementById("location-select").value);
 }
@@ -626,15 +654,15 @@ function renderEvaluationHistory(locationName) {
     && Number.isFinite(row.actual_count) && Number.isFinite(row.predicted_count))
     .sort((a, b) => Date.parse(a.target_time) - Date.parse(b.target_time));
   if (!rows.length) {
-    summary.textContent = "No scored 6-hour-ahead walk-forward predictions for this location.";
+    summary.textContent = "No past predictions made 6 hours ahead are available for this location.";
     return;
   }
   const mae = rows.reduce((total, row) =>
     total + Math.abs(row.predicted_count - row.actual_count), 0) / rows.length;
   const scope = evaluationHistory.config?.open_only
-    ? "Historical open-hours evaluation (unknown open flags retained)"
-    : "All-hours evaluation";
-  summary.textContent = `MAE ${mae.toFixed(2)} occupants · ${rows.length} scored predictions · ${formatTimestamp(rows[0].target_time)} – ${formatTimestamp(rows[rows.length - 1].target_time)} · ${scope}. Only rows scored for every baseline are included.`;
+    ? "Historical test during open hours (including hours with unknown status)"
+    : "Historical test across all hours";
+  summary.textContent = `Average prediction error: ${mae.toFixed(2)} people (MAE) · ${rows.length} compared hours · ${formatTimestamp(rows[0].target_time)} – ${formatTimestamp(rows[rows.length - 1].target_time)} · ${scope}. Only hours compared across all methods are included.`;
   renderHistoryChart(container, rows);
 }
 
@@ -652,7 +680,7 @@ function renderHistoryChart(container, rows) {
   const y = (count) => bottom - (count - floor) / (ceiling - floor) * (bottom - top);
   const svg = svgElement("svg", {
     viewBox: `0 0 ${width} 240`, role: "img",
-    "aria-label": "Walk-forward prediction vs. actual occupancy, fixed at 6 hours ahead. Gaps indicate missing scored hours.",
+    "aria-label": "Past predictions vs. actual occupancy, forecasts made 6 hours ahead. Gaps show hours excluded from the comparison.",
   });
   svg.style.width = `${width}px`;
   svg.style.minWidth = "100%";
@@ -667,7 +695,7 @@ function renderHistoryChart(container, rows) {
   }
   for (const [field, className, label] of [
     ["actual_count", "history-actual", "Actual observed occupancy"],
-    ["predicted_count", "history-predicted", "6-hour-ahead walk-forward prediction"],
+    ["predicted_count", "history-predicted", "Prediction made 6 hours ahead"],
   ]) {
     let path = "", previous = null;
     for (const row of rows) {

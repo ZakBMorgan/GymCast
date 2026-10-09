@@ -100,22 +100,27 @@ function send(method,params={},sessionId) {
   await send('Runtime.evaluate',{expression:'document.getElementById("history-heading").scrollIntoView()'},sessionId);
   const historyCheck=await send('Runtime.evaluate',{expression:'JSON.stringify({paths:document.querySelectorAll("#history-chart path").length,summary:document.getElementById("history-summary").textContent,scroll:document.documentElement.scrollWidth})',returnByValue:true},sessionId);
   const historyResult=JSON.parse(historyCheck.result.value);
-  assert.equal(historyResult.paths,2); assert.match(historyResult.summary,/MAE 3.00/);
+  assert.equal(historyResult.paths,2); assert.match(historyResult.summary,/Average prediction error: 3.00 people/);
   assert.equal(historyResult.scroll,width);
   const historyShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sessionId);
   fs.writeFileSync(`/tmp/gymcast-polish-history-${width}.png`,Buffer.from(historyShot.data,'base64'));
   await send('Runtime.evaluate',{expression:'scrollTo(0,0)'},sessionId);
-  for (const state of ['empty','expired']) {
+  for (const state of ['empty','expired','missing-capacity','unavailable-hours']) {
     const expression = state === 'empty'
       ? "renderLocation({locations:{Preview:[]}},'Preview')"
-      : "renderLocation(previewData,names[0],previewOrigin+25*3600000)";
+      : state === 'expired' ? "renderLocation(previewData,names[0],previewOrigin+25*3600000)"
+        : state === 'missing-capacity'
+          ? "renderLocation({locations:{Preview:previewData.locations[names[0]].map(p=>({...p,predicted_percent:null}))}},'Preview')"
+          : "renderLocation({locations:{Preview:previewData.locations[names[0]].map(p=>({...p,facility_status:'unknown',scheduled_status:'unknown'}))}},'Preview')";
     await send('Runtime.evaluate',{expression},sessionId);
-    const stateCheck=await send('Runtime.evaluate',{expression:"JSON.stringify({scroll:document.documentElement.scrollWidth,percent:document.getElementById('next-percent').textContent,barHidden:document.getElementById('next-capacity-track').hidden,hintVisible:!document.getElementById('forecast-scroll-hint').hidden,time:document.getElementById('next-time').textContent})",returnByValue:true},sessionId);
+    const stateCheck=await send('Runtime.evaluate',{expression:"JSON.stringify({scroll:document.documentElement.scrollWidth,percent:document.getElementById('next-percent').textContent,recommendedPercent:document.getElementById('recommended-percent').textContent,recommendedHidden:document.getElementById('recommended-values').hidden,barHidden:document.getElementById('next-capacity-track').hidden,hintVisible:!document.getElementById('forecast-scroll-hint').hidden,time:document.getElementById('next-time').textContent})",returnByValue:true},sessionId);
     const stateResult=JSON.parse(stateCheck.result.value);
     assert.equal(stateResult.scroll,width); assert.equal(stateResult.percent,'—');
     assert.equal(stateResult.barHidden,true);
     if(state==='expired') assert.match(stateResult.time,/out of date/);
-    assert.equal(stateResult.hintVisible,state==='expired' && width<500);
+    assert.equal(stateResult.hintVisible,state!=='empty' && width<500);
+    assert.equal(stateResult.recommendedPercent,'—');
+    assert.equal(stateResult.recommendedHidden,state!=='missing-capacity');
     const stateShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sessionId);
     fs.writeFileSync(`/tmp/gymcast-polish-${state}-${width}.png`,Buffer.from(stateShot.data,'base64'));
   }

@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="See hourly occupancy forecasts for Northeastern's Marino Center and SquashBusters and find quieter times to work out.">
+    <meta name="description" content="Hourly occupancy forecasts for Northeastern campus gyms. Find a quieter time to work out.">
     <title>Northeastern Marino Gym Occupancy Forecast | GymCast</title>
-    <link rel="canonical" href="https://gymcast.zakbmorgan.dev/">
     <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -14,7 +14,7 @@
     <header class="site-header">
       <div>
         <h1>GymCast<span class="brand-dot" aria-hidden="true">.</span></h1>
-        <p>Hourly occupancy forecasts for Northeastern’s Marino Center and SquashBusters.</p>
+        <p>GymCast helps Northeastern students find quieter gym hours at Marino Center and SquashBusters.</p>
       </div>
       <span class="header-context">Northeastern <span aria-hidden="true">/</span> Campus recreation</span>
     </header>
@@ -45,44 +45,66 @@
       <article class="forecast-sheet" aria-labelledby="forecast-heading">
         <section class="location-overview" aria-labelledby="forecast-heading">
           <div class="location-description">
-            <p class="eyebrow">Your location</p>
+            <p id="location-facility" class="eyebrow">Your location</p>
             <h2 id="forecast-heading">Hourly forecast</h2>
             <p id="current-availability" class="current-status" role="status" hidden></p>
             <p class="data-note">Live occupancy is not included in this forecast feed.</p>
           </div>
-          <div class="forecast-metrics" aria-label="Prediction for the next fully open hour">
+          <section class="recommended-hour" aria-labelledby="recommended-heading">
+            <h3 id="recommended-heading">Quietest upcoming hour</h3>
+            <p id="recommended-time" class="recommendation-time" role="status">Awaiting forecast</p>
+            <div id="recommended-values" hidden>
+              <p class="metric-label">Expected capacity used</p>
+              <p id="recommended-percent" class="metric-value">—</p>
+              <div id="recommended-capacity-track" class="overview-capacity-track" hidden aria-hidden="true">
+                <div id="recommended-capacity-fill" class="capacity-fill"></div>
+              </div>
+              <p id="recommended-percent-note" class="metric-detail"></p>
+              <p class="people-value"><span id="recommended-count">—</span> <span class="metric-unit">people expected</span></p>
+            </div>
+            <p id="recommended-explanation" class="data-note">The lowest expected number of people among upcoming hours
+              scheduled to be open for the full hour in this forecast. Estimates, not live counts or guaranteed space.</p>
+          </section>
+          <section class="forecast-metrics" aria-labelledby="next-heading">
             <div class="forecast-target">
-              <p class="metric-label">Next fully open hour</p>
+              <h3 id="next-heading">Next fully open hour</h3>
               <p id="next-time" class="target-time">Awaiting forecast</p>
               <p id="next-availability" class="metric-detail">Availability unknown</p>
             </div>
-            <div class="capacity-metric">
-              <p class="metric-label">Predicted capacity used</p>
-              <p id="next-percent" class="metric-value">—</p>
-              <div id="next-capacity-track" class="overview-capacity-track" hidden aria-hidden="true">
-                <div id="next-capacity-fill" class="capacity-fill"></div>
+            <p id="next-recommendation-note" class="data-note" hidden></p>
+            <div id="next-values">
+              <div class="capacity-metric">
+                <p class="metric-label">Expected capacity used</p>
+                <p id="next-percent" class="metric-value">—</p>
+                <div id="next-capacity-track" class="overview-capacity-track" hidden aria-hidden="true">
+                  <div id="next-capacity-fill" class="capacity-fill"></div>
+                </div>
+                <p id="next-percent-note" class="metric-detail"></p>
               </div>
-              <p id="next-percent-note" class="metric-detail"></p>
+              <div class="people-metric">
+                <p class="people-value"><span id="next-count">—</span> <span class="metric-unit">people expected</span></p>
+              </div>
             </div>
-            <div class="people-metric">
-              <p class="people-value"><span id="next-count">—</span> <span class="metric-unit">people predicted</span></p>
-            </div>
-          </div>
+          </section>
         </section>
 
-        <div class="freshness-strip">
-          <span>Latest observation <strong id="forecast-origin">—</strong></span>
-          <span>Generated <strong id="generated-at">—</strong></span>
-          <span>All times in New York</span>
-          <span id="forecast-freshness" role="status"></span>
+        <div class="freshness-strip" aria-label="Forecast freshness">
+          <div class="freshness-times">
+            <span>Latest observation <strong id="forecast-origin">—</strong></span>
+            <span>Forecast generated <strong id="generated-at">—</strong></span>
+          </div>
+          <p class="freshness-context">
+            <span id="forecast-freshness" role="status"></span>
+            <span class="freshness-timezone">New York time</span>
+          </p>
         </div>
 
         <section class="best-times" aria-labelledby="best-times-heading">
           <div class="section-heading">
-            <h3 id="best-times-heading">A quieter time to go</h3>
-            <p>Lowest predicted counts · Fully scheduled-open hours only</p>
+            <h3 id="best-times-heading">Other quiet hours</h3>
+            <p>Expected crowds · Scheduled to be open for the full hour</p>
           </div>
-          <ol id="quiet-hours-summary" class="quiet-summary" aria-label="Quietest forecast hours"></ol>
+          <ol id="quiet-hours-summary" class="quiet-summary" aria-label="Alternative quiet hours"></ol>
         </section>
 
         <section class="chart-section" aria-labelledby="chart-heading">
@@ -137,19 +159,21 @@
           <div class="section-heading">
             <div>
               <h3 id="history-heading">How GymCast performs</h3>
-              <p>Walk-forward prediction vs. actual · 6-hour-ahead walk-forward predictions</p>
+              <p>Past predictions vs. actual occupancy · Forecasts made 6 hours ahead</p>
             </div>
           </div>
-          <p id="history-location" class="eyebrow"></p>
-          <p id="history-summary" class="data-note" role="status">Loading backtested accuracy…</p>
+          <p id="history-location" class="sr-only"></p>
+          <p id="history-summary" class="data-note" role="status">Loading past prediction accuracy…</p>
           <div id="history-chart" class="chart-scroll" tabindex="0"
             aria-label="Historical accuracy chart; scroll horizontally to inspect all dates"></div>
           <div class="chart-legend">
             <span><i class="legend-actual" aria-hidden="true"></i> Actual observed occupancy</span>
-            <span><i class="legend-predicted" aria-hidden="true"></i> 6-hour-ahead walk-forward prediction</span>
+            <span><i class="legend-predicted" aria-hidden="true"></i> Prediction made 6 hours ahead</span>
           </div>
-          <p class="data-note">Backtested forecasts from models fitted within each evaluation fold,
-            not historical live predictions. Gaps represent unscored hours. All times in New York.</p>
+          <p class="data-note">These are historical test forecasts, not saved live forecasts. Each test model used
+            only earlier data (walk-forward evaluation). Gaps show hours excluded from the accuracy
+            comparison. Average prediction error (MAE) is the average absolute difference between
+            expected and observed people counts. All times in New York.</p>
         </section>
       </article>
       <noscript><p class="empty-state">Enable JavaScript to load location forecasts.</p></noscript>
