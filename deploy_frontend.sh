@@ -18,6 +18,7 @@ rsync -av --checksum web/ /var/www/gymcast/
 sed -i -E \
   -e "s|href=\"styles.css(\?v=[^\"]*)?\"|href=\"styles.css?v=${VERSION}\"|" \
   -e "s|src=\"app.js(\?v=[^\"]*)?\"|src=\"app.js?v=${VERSION}\"|" \
+  -e "s|href=\"/favicon.svg(\?v=[^\"]*)?\"|href=\"/favicon.svg?v=${VERSION}\"|" \
   /var/www/gymcast/index.html
 
 echo "Deployed GymCast frontend version ${VERSION}"
