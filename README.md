@@ -33,12 +33,12 @@ future accuracy.
 
 ### Desktop
 
-![GymCast desktop dashboard with quietest-hour recommendations and occupancy timeline](docs/images/gymcast-desktop.png)
+![GymCast desktop dashboard with quietest-hour recommendations and occupancy timeline](docs/images/gymcast-desktop-v2.png)
 
 ### Mobile
 
 <p align="center">
-  <img src="docs/images/gymcast-mobile.png" alt="GymCast mobile dashboard showing occupancy recommendations" width="360" />
+  <img src="docs/images/gymcast-mobile-v2.png" alt="GymCast mobile dashboard showing occupancy recommendations" width="360" />
 </p>
 
 ## Highlights
