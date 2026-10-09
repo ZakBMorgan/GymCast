@@ -22,13 +22,12 @@ async function loadPredictions() {
     const data = await response.json();
     loadedData = data;
     const locations = Object.keys(data.locations ?? {});
+    const previousLocation = document.getElementById("location-select").value;
 
     if (locations.length === 0) {
       statusElement.textContent = "No locations available yet.";
       return;
     }
-
-    console.log("GymCast predictions:", data);
 
     const locationSelect = document.getElementById("location-select");
 
@@ -41,12 +40,15 @@ async function loadPredictions() {
       locationSelect.appendChild(option);
     }
 
+    if (locations.includes(previousLocation)) locationSelect.value = previousLocation;
     locationSelect.disabled = false;
 
     locationSelect.onchange = () => {
+      syncLocationPicker();
       renderLocation(data, locationSelect.value);
     };
 
+    enhanceLocationPicker(locations);
     renderLocation(data, locationSelect.value);
 
     statusElement.textContent =
@@ -57,6 +59,116 @@ async function loadPredictions() {
       "Could not load forecasts. Check that the Flask API is running.";
   }
 }
+
+// The select remains the source of truth and the fallback if enhancement fails.
+let locationOptions = [];
+function syncLocationPicker() {
+  const selected = document.getElementById("location-select").value;
+  document.getElementById("location-selected").textContent = selected;
+  for (const option of locationOptions) {
+    option.setAttribute("aria-selected", String(option.locationName === selected));
+  }
+}
+
+function closeLocationPicker(restoreFocus = false) {
+  document.getElementById("location-menu").hidden = true;
+  document.getElementById("location-trigger").setAttribute("aria-expanded", "false");
+  if (restoreFocus) document.getElementById("location-trigger").focus();
+}
+
+function openLocationPicker(index) {
+  const menu = document.getElementById("location-menu");
+  menu.hidden = false;
+  document.getElementById("location-trigger").setAttribute("aria-expanded", "true");
+  const selected = locationOptions.findIndex((o) =>
+    o.locationName === document.getElementById("location-select").value);
+  locationOptions[index ?? Math.max(0, selected)]?.focus();
+}
+
+function enhanceLocationPicker(locations) {
+  const picker = document.getElementById("location-picker");
+  const menu = document.getElementById("location-menu");
+  const trigger = document.getElementById("location-trigger");
+  menu.replaceChildren();
+  locationOptions = [];
+  const groups = new Map();
+  for (const name of locations) {
+    const facility = /^marino\b/i.test(name) ? "Marino Center"
+      : /^squash\s*busters\b/i.test(name) ? "SquashBusters" : "Other locations";
+    if (!groups.has(facility)) groups.set(facility, []);
+    groups.get(facility).push(name);
+  }
+  for (const [facility, names] of groups) {
+    const group = document.createElement("div");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", facility);
+    const heading = document.createElement("p");
+    heading.classList.add("location-group-label");
+    heading.setAttribute("aria-hidden", "true");
+    heading.textContent = facility;
+    group.appendChild(heading);
+    for (const name of names) {
+      const option = document.createElement("div");
+      option.setAttribute("role", "option");
+      option.tabIndex = -1;
+      option.classList.add("location-option");
+      option.locationName = name;
+      const label = document.createElement("span");
+      label.textContent = name;
+      const check = document.createElement("span");
+      check.classList.add("location-check");
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = "✓";
+      option.append(label, check);
+      option.onclick = () => {
+        const select = document.getElementById("location-select");
+        select.value = name;
+        select.onchange();
+        closeLocationPicker(true);
+      };
+      option.onkeydown = (event) => {
+        const index = locationOptions.indexOf(option);
+        let target;
+        if (event.key === "ArrowDown") target = (index + 1) % locationOptions.length;
+        if (event.key === "ArrowUp") target = (index - 1 + locationOptions.length) % locationOptions.length;
+        if (event.key === "Home") target = 0;
+        if (event.key === "End") target = locationOptions.length - 1;
+        if (target !== undefined) { event.preventDefault(); locationOptions[target].focus(); }
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); option.onclick(); }
+        if (event.key === "Escape") { event.preventDefault(); closeLocationPicker(true); }
+        if (event.key === "Tab") closeLocationPicker(true);
+        if (event.key.length === 1 && event.key !== " ") {
+          const ordered = [...locationOptions.slice(index + 1), ...locationOptions.slice(0, index + 1)];
+          ordered.find((o) => o.locationName.toLowerCase().startsWith(event.key.toLowerCase()))?.focus();
+        }
+      };
+      locationOptions.push(option);
+      group.appendChild(option);
+    }
+    menu.appendChild(group);
+  }
+  trigger.onclick = () => menu.hidden ? openLocationPicker() : closeLocationPicker(true);
+  trigger.onkeydown = (event) => {
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      openLocationPicker(event.key === "Home" ? 0
+        : ["ArrowUp", "End"].includes(event.key) ? locationOptions.length - 1 : undefined);
+    }
+    if (event.key === "Escape") closeLocationPicker(true);
+  };
+  picker.onfocusout = (event) => {
+    if (!picker.contains(event.relatedTarget)) closeLocationPicker();
+  };
+  syncLocationPicker();
+  closeLocationPicker();
+  document.getElementById("location-select").hidden = true;
+  picker.hidden = false;
+  document.getElementById("location-label").htmlFor = "location-trigger";
+}
+
+document.addEventListener("pointerdown", (event) => {
+  if (!document.getElementById("location-picker").contains(event.target)) closeLocationPicker();
+});
 
 function renderLocation(data, locationName, now = Date.now()) {
   // Preserve history scroll position during the current-forecast clock updates.
@@ -189,6 +301,13 @@ function renderBestTimes(candidates, predictions, now) {
   }
   for (const prediction of candidates.slice(0, 3)) {
     const item = document.createElement("li");
+    if (summary.children.length === 0) {
+      item.classList.add("best-recommendation");
+      const label = document.createElement("span");
+      label.classList.add("recommendation-label");
+      label.textContent = "Quietest upcoming";
+      item.appendChild(label);
+    }
     const time = document.createElement("strong");
     time.textContent = formatTimestamp(prediction.time);
     const count = document.createElement("span");
@@ -207,6 +326,13 @@ function renderForecastOverview(predictions, now) {
     Number.isFinite(next?.predicted_count) ? next.predicted_count : "—";
   document.getElementById("next-percent").textContent =
     Number.isFinite(next?.predicted_percent) ? `${next.predicted_percent}%` : "—";
+  const percent = next?.predicted_percent;
+  const hasPercent = Number.isFinite(percent);
+  document.getElementById("next-capacity-track").hidden = !hasPercent;
+  document.getElementById("next-capacity-fill").style.width =
+    `${hasPercent ? Math.max(0, Math.min(100, percent)) : 0}%`;
+  document.getElementById("next-percent-note").textContent = next && !hasPercent
+    ? "Capacity estimate unavailable" : "";
   document.getElementById("next-time").textContent = next
     ? formatTimestamp(next.time)
     : forecastExpired(predictions, now) ? EXPIRED_FORECAST
@@ -222,6 +348,20 @@ function svgElement(tag, attributes, text) {
   return element;
 }
 
+function updateForecastScrollHint() {
+  const chart = document.getElementById("forecast-chart");
+  document.getElementById("forecast-scroll-hint").hidden = !(
+    window.innerWidth <= 540 && chart.querySelector("svg")
+    && chart.clientWidth > 0 && chart.scrollWidth > chart.clientWidth + 1
+  );
+}
+
+window.addEventListener("resize", updateForecastScrollHint);
+// Observe container changes as well as viewport resizes (including embedded layouts).
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(updateForecastScrollHint).observe(document.getElementById("forecast-chart"));
+}
+
 function renderForecastChart(predictions, now) {
   const container = document.getElementById("forecast-chart");
   container.replaceChildren();
@@ -234,6 +374,7 @@ function renderForecastChart(predictions, now) {
     empty.classList.add("empty-state");
     empty.textContent = "No occupancy forecast available to chart.";
     container.appendChild(empty);
+    updateForecastScrollHint();
     return;
   }
 
@@ -319,6 +460,7 @@ function renderForecastChart(predictions, now) {
     })));
   }
   container.appendChild(svg);
+  updateForecastScrollHint();
 }
 
 function createCapacityCell(percent) {

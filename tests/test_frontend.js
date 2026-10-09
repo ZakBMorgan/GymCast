@@ -24,6 +24,9 @@ function element(tag) {
     },
     append(...children) { children.forEach((child) => this.appendChild(child)); },
     replaceChildren() { text = ""; this.children = []; },
+    querySelector(tag) { return this.children.find((child) => child.tag === tag) ?? null; },
+    focus() { element.active = this; },
+    contains(target) { return this === target || this.children.some((child) => child.contains(target)); },
     setAttribute(name, value) { this.attributes[name] = String(value); },
   };
 }
@@ -67,13 +70,17 @@ async function main(hostname, expectedBase) {
     "show-closed-hours", "forecast-empty", "next-count", "next-percent",
     "next-time", "next-availability", "forecast-chart", "forecast-freshness",
     "history-chart", "history-summary", "history-location",
+    "location-label", "location-picker", "location-trigger", "location-menu", "location-selected",
+    "next-capacity-track", "next-capacity-fill", "next-percent-note", "forecast-scroll-hint",
   ].map((id) => [id, element(id === "location-select" ? "select" : "div")]));
   let interval;
+  const listeners = {};
   const requests = [];
   const context = vm.createContext({
-    window: { location: { hostname } },
+    window: { location: { hostname }, innerWidth: 1440,
+      addEventListener: (name, handler) => { listeners[`window:${name}`] = handler; } },
     console: { log() {}, error() {} }, Date,
-    document: { getElementById: (id) => ids[id], createElement: element,
+    document: { addEventListener: (name, handler) => { listeners[name] = handler; }, getElementById: (id) => ids[id], createElement: element,
       createElementNS: (_namespace, tag) => element(tag) },
     fetch: async (url, options) => {
       requests.push({ url, method: options?.method ?? "GET" });
@@ -86,6 +93,45 @@ async function main(hostname, expectedBase) {
   await new Promise(setImmediate);
   assert.equal(ids["location-select"].children.length, 2);
   assert.equal(ids["location-select"].disabled, false);
+  assert.equal(ids["location-select"].hidden, true);
+  assert.equal(ids["location-picker"].hidden, false);
+  const options = () => ids["location-menu"].children.flatMap((group) =>
+    group.children.filter((child) => child.attributes.role === "option"));
+  assert.equal(options().length, 2);
+  const key = (key) => ({ key, preventDefault() {} });
+  ids["location-trigger"].onclick();
+  assert.equal(ids["location-menu"].hidden, false);
+  assert.equal(element.active, options()[0]);
+  options()[0].onkeydown(key("ArrowDown"));
+  assert.equal(element.active, options()[1]);
+  options()[1].onkeydown(key("Home"));
+  assert.equal(element.active, options()[0]);
+  options()[0].onkeydown(key("End"));
+  assert.equal(element.active, options()[1]);
+  options()[1].onkeydown(key(" "));
+  assert.equal(ids["location-select"].value, "Other");
+  assert.equal(ids["location-selected"].textContent, "Other");
+  assert.equal(options()[1].attributes["aria-selected"], "true");
+  assert.equal(ids["forecast-heading"].textContent, "Other");
+  assert.equal(ids["history-location"].textContent, "Other");
+  assert.equal(ids["current-availability"].hidden, true);
+  assert.equal(ids["forecast-chart"].children[0].children.filter((n) => n.tag === "circle").length, 2);
+  ids["location-trigger"].onkeydown(key("ArrowUp"));
+  options()[1].onkeydown(key("ArrowUp"));
+  options()[0].onkeydown(key("Enter"));
+  assert.equal(ids["location-select"].value, "Marino");
+  ids["location-trigger"].onclick();
+  options()[0].onkeydown(key("Escape"));
+  assert.equal(ids["location-menu"].hidden, true);
+  assert.equal(element.active, ids["location-trigger"]);
+  ids["location-trigger"].onclick();
+  listeners.pointerdown({ target: ids.status });
+  assert.equal(ids["location-menu"].hidden, true);
+  ids["location-trigger"].onclick();
+  options()[0].onkeydown(key("Tab"));
+  assert.equal(ids["location-menu"].hidden, true);
+  assert.equal(ids["next-capacity-fill"].style.width, "20%");
+
   const forecastRows = () => ids["forecast-rows"].children
     .filter((row) => !row.classList.has("day-divider"));
   assert.equal(forecastRows().length, 6, "closed rows hidden by default; partial/unknown retained");
@@ -94,6 +140,19 @@ async function main(hostname, expectedBase) {
   assert.equal(ids["next-count"].textContent, "10", "summary skips closed, partial, and unknown hours");
   assert.equal(ids["next-percent"].textContent, "20%");
   assert.equal(ids["next-availability"].textContent, "Scheduled open");
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "desktop has no swipe hint");
+  ids["forecast-chart"].clientWidth = 320;
+  ids["forecast-chart"].scrollWidth = 760;
+  context.window.innerWidth = 390;
+  listeners["window:resize"]();
+  assert.equal(ids["forecast-scroll-hint"].hidden, false, "mobile chart overflow shows hint");
+  ids["forecast-chart"].scrollWidth = 320;
+  listeners["window:resize"]();
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "no hint without actual overflow");
+  ids["forecast-chart"].scrollWidth = 760;
+  context.window.innerWidth = 1440;
+  listeners["window:resize"]();
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "wide layout hides hint even with overflow");
   const chart = ids["forecast-chart"].children[0];
   assert.equal(chart.attributes.role, "img");
   assert.equal(chart.children.filter((node) => node.tag === "circle").length, 8);
@@ -170,6 +229,9 @@ async function main(hostname, expectedBase) {
   context.renderLocation({ locations: { Empty: [] } }, "Empty", now);
   assert.equal(ids["next-count"].textContent, "—");
   assert.match(ids["forecast-chart"].textContent, /No occupancy forecast/);
+  context.window.innerWidth = 390;
+  context.updateForecastScrollHint();
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "empty chart has no swipe hint");
   context.renderForecastChart([prediction("open", 0)], now);
   assert.equal(ids["forecast-chart"].children[0].children.filter((n) => n.tag === "circle").length, 1);
   assert(!JSON.stringify(ids["forecast-chart"].children[0]).includes("NaN"));
@@ -189,6 +251,21 @@ async function main(hostname, expectedBase) {
   assert.equal(ids["next-count"].textContent, "—");
   assert.equal(ids["next-percent"].textContent, "—");
   assert.equal(ids["next-time"].textContent, "No fully open upcoming hours in this forecast");
+  context.renderForecastOverview([prediction("open", 80, { predicted_percent: 160 })], now);
+  assert.equal(ids["next-percent"].textContent, "160%");
+  assert.equal(ids["next-capacity-fill"].style.width, "100%");
+  context.renderForecastOverview([prediction("open", null, { predicted_percent: null })], now);
+  assert.equal(ids["next-count"].textContent, "—");
+  assert.equal(ids["next-capacity-track"].hidden, true);
+  assert.match(ids["next-percent-note"].textContent, /unavailable/);
+  assert.equal(ids["quiet-hours-summary"].children[0].classList.has("best-recommendation"), false);
+  assert.match(context.formatTimestamp("2026-10-09T18:00:00Z"), /2:00 PM/);
+  assert.match(context.formatTimestamp("2026-10-09T18:03:00Z"), /2:03 PM/,
+    "formatter must preserve supplied minutes rather than conceal misalignment");
+  for (const stamp of ["2026-11-01T05:00:00Z", "2026-11-01T06:00:00Z"]) {
+    assert.match(context.formatTimestamp(stamp), /1:00 AM/);
+  }
+  assert.match(context.formatTimestamp("2026-03-08T07:00:00Z"), /3:00 AM/);
   // Fixed clock and offset-bearing timestamps verify comparisons are chronological.
   const fixedNow = Date.parse("2026-10-05T04:00:00Z");
   const timeline = [
@@ -204,6 +281,7 @@ async function main(hostname, expectedBase) {
   const unchangedTimeline = JSON.stringify(timedData);
   context.renderLocation(timedData, "Timed", fixedNow);
   assert.equal(ids["next-count"].textContent, "20", "skip past and exactly-now rows");
+  assert(ids["quiet-hours-summary"].children[0].classList.has("best-recommendation"));
   assert.match(ids["quiet-hours-summary"].textContent, /10 people.*20 people/);
   assert.equal(forecastRows().length, timeline.length, "complete timeline stays inspectable");
   assert(forecastRows().slice(0, 5).every((row) => !row.classList.has("quiet-hour")));
@@ -270,6 +348,11 @@ async function main(hostname, expectedBase) {
     { url: `${expectedBase}/api/evaluation-history?horizon=6`, method: "GET" },
   ],
     "page load reads predictions; renders, toggles, and timers never POST refresh");
+  context.enhanceLocationPicker(["Marino Center Floor 1", "SquashBusters Courts", "Unmatched long name"]);
+  assert.equal(options().length, 3);
+  assert.equal(ids["location-menu"].children[0].attributes["aria-label"], "Marino Center");
+  assert.equal(ids["location-menu"].children[1].attributes["aria-label"], "SquashBusters");
+  assert.equal(ids["location-menu"].children[2].attributes["aria-label"], "Other locations");
   assert.equal(JSON.stringify(data), original, "rendering never mutates predictions");
   console.log(`PASS (${hostname}): API URLs, rendering, history, unchanged values, and GET-only loading`);
 }
