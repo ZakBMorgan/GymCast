@@ -137,7 +137,7 @@ refresh, and model retraining have separate lifecycles.
 
 ## Current State
 
-_Last updated: 2026-10-05_
+_Last updated: 2026-10-09_
 
 - Collection, hourly panel construction, training, evaluation, prediction, and
   Flask API are implemented. Ten synthetic pipeline tests cover timezone loading,
@@ -223,6 +223,13 @@ using artifacts produced under the previous timestamp interpretation.
   both scheduled and effective status to be fully open. Current live reports and
   conflicts appear beside timestamps; expiry is rechecked every 30 seconds.
   Expired current evidence is presented as a timestamped schedule snapshot.
+  A capacity-first overview includes a capped visual bar and secondary predicted
+  people count. The in-page location listbox groups recognizable facility names,
+  retains unmatched locations, supports keyboard navigation, and enhances the
+  native select only after successful population. The top quietest upcoming
+  recommendation has a distinct restrained treatment. Synthetic-fixture Chrome
+  previews at 1440, 375, 390, and 430px show no page-wide overflow; iOS Safari
+  and assistive technology have not been directly tested.
   A compact summary lists up to three quietest fully open hours; local date
   headings group the table. Metadata is compact and explanations are collapsible.
   The v2 layout uses CSS tokens and one continuous forecast surface; a native

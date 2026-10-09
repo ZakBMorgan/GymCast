@@ -22,10 +22,19 @@
     <main>
       <div class="location-toolbar">
         <div class="location-control">
-          <label for="location-select">Choose a location</label>
+          <label id="location-label" for="location-select">Choose a location</label>
           <select id="location-select" disabled>
             <option>Loading locations…</option>
           </select>
+          <div id="location-picker" class="location-picker" hidden>
+            <button id="location-trigger" class="location-trigger" type="button"
+              aria-haspopup="listbox" aria-expanded="false" aria-controls="location-menu"
+              aria-labelledby="location-label location-selected">
+              <span id="location-selected"></span><span class="location-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="location-menu" class="location-menu" role="listbox"
+              aria-labelledby="location-label" hidden></div>
+          </div>
         </div>
         <p id="status" role="status">Forecasts are not loaded yet.</p>
       </div>
@@ -39,15 +48,22 @@
             <p class="data-note">Live occupancy is not included in this forecast feed.</p>
           </div>
           <div class="forecast-metrics" aria-label="Prediction for the next fully open hour">
-            <div>
+            <div class="forecast-target">
               <p class="metric-label">Next fully open hour</p>
-              <p class="metric-value"><span id="next-count">—</span> <span class="metric-unit">people</span></p>
-              <p id="next-time" class="metric-detail">Awaiting forecast</p>
-            </div>
-            <div>
-              <p class="metric-label">Predicted capacity</p>
-              <p id="next-percent" class="metric-value">—</p>
+              <p id="next-time" class="target-time">Awaiting forecast</p>
               <p id="next-availability" class="metric-detail">Availability unknown</p>
+            </div>
+            <div class="capacity-metric">
+              <p class="metric-label">Predicted capacity used</p>
+              <p id="next-percent" class="metric-value">—</p>
+              <div id="next-capacity-track" class="overview-capacity-track" hidden aria-hidden="true">
+                <div id="next-capacity-fill" class="capacity-fill"></div>
+              </div>
+              <p id="next-percent-note" class="metric-detail"></p>
+            </div>
+            <div class="people-metric">
+              <p class="metric-label">Predicted occupancy</p>
+              <p class="people-value"><span id="next-count">—</span> <span class="metric-unit">people</span></p>
             </div>
           </div>
         </section>
