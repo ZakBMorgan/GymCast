@@ -10,7 +10,8 @@ Help Northeastern students choose when to work out by forecasting hourly
 occupancy at Marino Center and SquashBusters locations. Default output is the
 next 24 hours per location. The pipeline, JSON API, and a basic local HTML/CSS/JavaScript frontend exist.
 The frontend uses a responsive, restrained v2 layout with a native SVG chart,
-forecast summary, and availability table, with quietest-hour
+a primary quietest-hour recommendation, a separate next-open-hour summary,
+and availability table, with quietest-hour
 highlighting restricted to fully scheduled-open hours.
 
 ## Architecture and data flow
@@ -228,23 +229,34 @@ using artifacts produced under the previous timestamp interpretation.
   both scheduled and effective status to be fully open. Current live reports and
   conflicts appear beside timestamps; expiry is rechecked every 30 seconds.
   Expired current evidence is presented as a timestamped schedule snapshot.
-  A capacity-first overview stacks the target time, capped visual bar, and secondary
-  predicted people count. The floating menu has a clear border/shadow; the forecast
+  The primary recommendation shows the quietest eligible upcoming hour with its
+  expected capacity percentage and people count, using the existing ranking and
+  earliest-time tie break. The next fully open hour is secondary; matching-hour
+  occupancy metrics are not repeated. Two additional ranked hours appear below.
+  Missing capacity retains the expected count; no eligible hours or expired
+  forecasts produce an empty state. Historical accuracy now describes MAE as
+  average prediction error in people, with walk-forward details in the help text. The floating menu has a clear border/shadow; the forecast
   SVG uses a 760px minimum width with internal mobile scrolling; a secondary
   swipe/scroll hint appears only on narrow viewports with actual chart overflow.
   The dropdown has one visible keyboard focus ring and a down/up SVG chevron.
-  Desktop overview padding is slightly tighter; mobile spacing is retained.
+  Desktop overview padding is slightly tighter; mobile section spacing is compact
+  while selector touch targets remain unchanged. The next-open comparison uses
+  neutral typography and a muted bar, distinct from the green recommendation.
+  Recognizable separated facility prefixes move to an eyebrow above the shorter
+  location heading; full selector names and data keys remain unchanged. Freshness
+  groups observation and generation timestamps separately with generation age
+  and New York time below.
   The in-page location listbox groups recognizable facility names,
   retains unmatched locations, supports keyboard navigation, and enhances the
   native select only after successful population. The top quietest upcoming
-  recommendation has a distinct restrained treatment. The optional
+  recommendation appears near the top in a restrained green surface. The optional
   `node tests/preview_frontend.cjs` uses hour-aligned synthetic targets (the earlier
   temporary preview retained wall-clock minutes). Synthetic-fixture Chrome
   previews at 1440, 375, 390, and 430px show no page-wide overflow. Final checks
   include keyboard-focused/open menus, viewport containment and stacking, chart
   scrolling/hint visibility, empty/expired states, and two-series history; iOS Safari
   and assistive technology have not been directly tested.
-  A compact summary lists up to three quietest fully open hours; local date
+  A primary recommendation plus up to two alternatives retain three quietest fully open hours; local date
   headings group the table. Metadata is compact and explanations are collapsible.
   The v2 layout uses CSS tokens and one continuous forecast surface; a native
   SVG chart includes all hours with closed/partial shading and preserves gaps.

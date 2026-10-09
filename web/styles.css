@@ -251,3 +251,58 @@ h2 { overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) {
   .location-chevron { transition: none; }
 }
+
+
+/* Lead with the quietest eligible hour; the next-open forecast is a separate comparison. */
+.site-header > div { min-width: 0; }
+.site-header p { max-width: 680px; }
+.header-context { flex: none; }
+.location-overview { align-items: start; gap: 24px; }
+.location-description { grid-column: 1 / -1; }
+.recommended-hour { min-width: 0; padding: 20px; background: var(--accent-soft); border-left: 2px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.recommended-hour h3 { color: var(--accent); }
+.recommendation-time { font-size: 20px; line-height: 1.4; font-weight: 650; margin: 8px 0 14px; overflow-wrap: anywhere; }
+.recommended-hour .metric-value { font-size: clamp(40px, 5vw, 50px); color: var(--accent); overflow-wrap: anywhere; }
+.recommended-hour .people-value { margin-top: 12px; }
+.recommended-hour .data-note { margin-top: 16px; }
+.forecast-metrics { padding-block: 8px; }
+.forecast-metrics h3 { font-size: 14px; }
+.forecast-metrics .metric-value { font-size: 26px; color: var(--text); }
+.forecast-metrics .people-value { margin-top: 12px; font-size: 18px; }
+.quiet-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.quiet-summary li { min-width: 0; }
+.quiet-summary strong { overflow-wrap: anywhere; }
+@media (max-width: 800px) {
+  .forecast-metrics { padding-top: 20px; }
+}
+@media (max-width: 540px) {
+  .location-overview { gap: 20px; }
+  .recommended-hour { padding: 18px; }
+  #next-values { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .quiet-summary { grid-template-columns: 1fr; }
+  .recommended-hour .data-note { font-size: 13px; }
+}
+
+
+/* Quietest is the recommendation; next-open stays a neutral comparison. */
+.forecast-metrics h3 { color: var(--muted); font-weight: 600; }
+.forecast-metrics .target-time { font-size: 16px; }
+.forecast-metrics .capacity-fill { background: var(--muted); }
+.freshness-strip { display: block; font-size: 12px; padding-block: 10px; }
+.freshness-times { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.freshness-context { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; }
+.freshness-context #forecast-freshness { flex-basis: auto; }
+.freshness-timezone { white-space: nowrap; }
+@media (max-width: 540px) {
+  .site-header { padding-block: 16px; }
+  .location-toolbar { padding-block: 16px; }
+  .location-overview, .best-times, .chart-section, .detail-section { padding-block: 18px; }
+  .location-overview { gap: 16px; }
+  .recommended-hour { padding: 16px; }
+  .recommendation-time { margin-block: 6px 10px; }
+  .recommended-hour .data-note { margin-top: 12px; }
+  .section-heading { margin-bottom: 16px; }
+  .quiet-summary li { padding-block: 10px; }
+  .freshness-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .freshness-times strong { display: block; margin-left: 0; }
+}

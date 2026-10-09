@@ -70,8 +70,11 @@ async function main(hostname, expectedBase) {
     "show-closed-hours", "forecast-empty", "next-count", "next-percent",
     "next-time", "next-availability", "forecast-chart", "forecast-freshness",
     "history-chart", "history-summary", "history-location",
-    "location-label", "location-picker", "location-trigger", "location-menu", "location-selected",
+    "location-facility", "location-label", "location-picker", "location-trigger", "location-menu", "location-selected",
     "next-capacity-track", "next-capacity-fill", "next-percent-note", "forecast-scroll-hint",
+    "recommended-time", "recommended-values", "recommended-explanation", "recommended-count",
+    "recommended-percent", "recommended-capacity-track", "recommended-capacity-fill",
+    "recommended-percent-note", "next-values", "next-recommendation-note",
   ].map((id) => [id, element(id === "location-select" ? "select" : "div")]));
   let interval;
   const listeners = {};
@@ -98,6 +101,12 @@ async function main(hostname, expectedBase) {
   const options = () => ids["location-menu"].children.flatMap((group) =>
     group.children.filter((child) => child.attributes.role === "option"));
   assert.equal(options().length, 2);
+  const named = context.locationHeading("Marino Center — Second Floor Cardio");
+  assert.equal(named.facility, "Marino Center");
+  assert.equal(named.name, "Second Floor Cardio");
+  assert.equal(context.locationHeading("SquashBusters - 4th Floor").name, "4th Floor");
+  assert.equal(context.locationHeading("Marino Center Pool").name, "Marino Center Pool");
+  assert.equal(context.locationHeading("Other — Cardio").name, "Other — Cardio");
   const key = (key) => ({ key, preventDefault() {} });
   ids["location-trigger"].onclick();
   assert.equal(ids["location-menu"].hidden, false);
@@ -158,7 +167,12 @@ async function main(hostname, expectedBase) {
   assert.equal(chart.children.filter((node) => node.tag === "circle").length, 8);
   assert.equal(chart.children.filter((node) => node.attributes.class === "chart-closed-band").length, 2);
   const summaryBeforeToggle = ids["quiet-hours-summary"].textContent;
-  assert.equal((summaryBeforeToggle.match(/10 people/g) || []).length, 2);
+  assert.equal((summaryBeforeToggle.match(/10 people/g) || []).length, 1);
+  assert.equal(ids["recommended-count"].textContent, "10");
+  assert.equal(ids["recommended-percent"].textContent, "20%");
+  assert.equal(ids["recommended-values"].hidden, false);
+  assert.equal(ids["next-values"].hidden, true, "same-hour metrics are not repeated");
+  assert.match(ids["next-recommendation-note"].textContent, /Also the quietest/);
   assert.doesNotMatch(summaryBeforeToggle, /(?:^|[^0-9])(?:0|1|2|3|4|5) people/);
   ids["show-closed-hours"].checked = true;
   ids["show-closed-hours"].onchange();
@@ -199,7 +213,7 @@ async function main(hostname, expectedBase) {
   ids["location-select"].onchange();
   assert.equal(forecastRows().length, 2);
   assert(forecastRows().every((row) => !row.classList.has("quiet-hour")));
-  assert.match(ids["quiet-hours-summary"].textContent, /No fully scheduled-open/);
+  assert.match(ids["quiet-hours-summary"].textContent, /No other quiet hours/);
   assert.equal(ids["current-availability"].hidden, true);
   interval();
   assert.equal(forecastRows().length, 2, "timer respects selected location");
@@ -222,12 +236,15 @@ async function main(hostname, expectedBase) {
     prediction("open", 10), prediction("partial", 1),
   ] } }, "Ranked", now);
   const ranked = ids["quiet-hours-summary"].textContent;
-  assert.equal((ranked.match(/ people/g) || []).length, 3);
-  assert(ranked.indexOf("10 people") < ranked.indexOf("20 people"));
+  assert.equal((ranked.match(/ people/g) || []).length, 2);
+  assert.equal(ids["recommended-count"].textContent, "10");
+  assert(!ranked.includes("10 people"), "primary recommendation is not repeated among alternatives");
   assert(ranked.indexOf("20 people") < ranked.indexOf("30 people"));
   assert(!ranked.includes("40 people"));
   context.renderLocation({ locations: { Empty: [] } }, "Empty", now);
   assert.equal(ids["next-count"].textContent, "—");
+  assert.equal(ids["recommended-values"].hidden, true);
+  assert.equal(ids["next-values"].hidden, true);
   assert.match(ids["forecast-chart"].textContent, /No occupancy forecast/);
   context.window.innerWidth = 390;
   context.updateForecastScrollHint();
@@ -235,6 +252,36 @@ async function main(hostname, expectedBase) {
   context.renderForecastChart([prediction("open", 0)], now);
   assert.equal(ids["forecast-chart"].children[0].children.filter((n) => n.tag === "circle").length, 1);
   assert(!JSON.stringify(ids["forecast-chart"].children[0]).includes("NaN"));
+  context.renderLocation({ locations: { Ties: [
+    prediction("open", 5, { time: iso(180) }),
+    prediction("open", 5, { time: iso(120) }),
+    prediction("open", 9, { time: iso(60) }),
+  ] } }, "Ties", now);
+  assert.equal(ids["recommended-time"].textContent, context.formatTimestamp(iso(120)),
+    "equal-count recommendations retain the earliest-time tie break");
+  assert.equal(ids["next-time"].textContent, context.formatTimestamp(iso(60)),
+    "next-open selection stays chronological rather than using the recommendation");
+  const sparse = { locations: { Sparse: [
+    prediction("open", 8, { predicted_percent: null }),
+    prediction("open", 12, { time: iso(120) }),
+  ] } };
+  context.renderLocation(sparse, "Sparse", now);
+  assert.equal(ids["recommended-count"].textContent, "8");
+  assert.equal(ids["recommended-percent"].textContent, "—");
+  assert.equal(ids["recommended-capacity-track"].hidden, true);
+  assert.match(ids["recommended-percent-note"].textContent, /unavailable/);
+  context.renderLocation({ locations: { AboveCapacity: [prediction("open", 80, {
+    predicted_percent: 160 })] } }, "AboveCapacity", now);
+  assert.equal(ids["recommended-percent"].textContent, "160%");
+  assert.equal(ids["recommended-capacity-fill"].style.width, "100%");
+  assert.match(ids["quiet-hours-summary"].textContent, /No other/);
+  context.renderLocation({ locations: { Unknown: [prediction("unknown", 1),
+    prediction("partial", 2), prediction("closed", 0),
+    prediction("open", null), prediction("open", 1, { time: iso(-1) })] } }, "Unknown", now);
+  assert.equal(ids["recommended-values"].hidden, true);
+  assert.equal(ids["recommended-count"].textContent, "—");
+  assert.equal(ids["recommended-capacity-track"].hidden, true);
+  assert.match(ids["recommended-time"].textContent, /No upcoming/);
   const unordered = [
     prediction("open", 40, { time: iso(240) }),
     prediction("closed", 0, { time: iso(30) }),
@@ -258,7 +305,7 @@ async function main(hostname, expectedBase) {
   assert.equal(ids["next-count"].textContent, "—");
   assert.equal(ids["next-capacity-track"].hidden, true);
   assert.match(ids["next-percent-note"].textContent, /unavailable/);
-  assert.equal(ids["quiet-hours-summary"].children[0].classList.has("best-recommendation"), false);
+
   assert.match(context.formatTimestamp("2026-10-09T18:00:00Z"), /2:00 PM/);
   assert.match(context.formatTimestamp("2026-10-09T18:03:00Z"), /2:03 PM/,
     "formatter must preserve supplied minutes rather than conceal misalignment");
@@ -281,11 +328,15 @@ async function main(hostname, expectedBase) {
   const unchangedTimeline = JSON.stringify(timedData);
   context.renderLocation(timedData, "Timed", fixedNow);
   assert.equal(ids["next-count"].textContent, "20", "skip past and exactly-now rows");
-  assert(ids["quiet-hours-summary"].children[0].classList.has("best-recommendation"));
-  assert.match(ids["quiet-hours-summary"].textContent, /10 people.*20 people/);
+  assert.equal(ids["recommended-count"].textContent, "10");
+  assert.equal(ids["recommended-time"].textContent, context.formatTimestamp(timeline[6].time));
+  assert.equal(ids["next-values"].hidden, false, "next hour remains distinct when it differs");
+  assert.match(ids["quiet-hours-summary"].textContent, /20 people/);
   assert.equal(forecastRows().length, timeline.length, "complete timeline stays inspectable");
   assert(forecastRows().slice(0, 5).every((row) => !row.classList.has("quiet-hour")));
-  assert.match(ids["forecast-freshness"].textContent, /Generated 1 hr ago/);
+  assert.equal(ids["forecast-freshness"].textContent, "Generated 1 hr ago");
+  assert.equal(ids["forecast-origin"].textContent, "Unknown", "observation time is not substituted with generation time");
+  assert.equal(ids["generated-at"].textContent, context.formatTimestamp(timedData.generated_at));
   const timedChart = ids["forecast-chart"].children[0];
   const forecastDots = timedChart.children.filter((n) => n.tag === "circle");
   assert.equal(forecastDots.length, timeline.length, "all current forecast points retained");
@@ -302,10 +353,13 @@ async function main(hostname, expectedBase) {
   context.renderLocation(timedData, "Timed", Date.parse("2026-10-05T06:00:00Z"));
   assert.equal(ids["next-count"].textContent, "—");
   assert.equal(ids["next-percent"].textContent, "—");
-  for (const id of ["next-time", "quiet-hours-summary", "forecast-freshness"]) {
+  for (const id of ["next-time", "recommended-time", "quiet-hours-summary", "forecast-freshness"]) {
     assert.match(ids[id].textContent, /Forecast is out of date/);
   }
   assert(forecastRows().every((row) => !row.classList.has("quiet-hour")));
+  assert.equal(ids["recommended-values"].hidden, true);
+  assert.equal(ids["recommended-count"].textContent, "—");
+  assert.equal(ids["next-values"].hidden, true);
   assert.equal(forecastRows().length, timeline.length);
   assert.equal(JSON.stringify(timedData), unchangedTimeline);
   assert.equal(context.isUpcoming({ time: "invalid" }, fixedNow), false);
@@ -329,8 +383,8 @@ async function main(hostname, expectedBase) {
   };
   vm.runInContext("evaluationHistory = historyFixture", context);
   context.renderEvaluationHistory("Timed");
-  assert.match(ids["history-summary"].textContent, /MAE 3.00 occupants · 2 scored/);
-  assert.match(ids["history-summary"].textContent, /Historical open-hours/);
+  assert.match(ids["history-summary"].textContent, /Average prediction error: 3.00 people \(MAE\) · 2 compared hours/);
+  assert.match(ids["history-summary"].textContent, /Historical test during open hours/);
   const historyChart = ids["history-chart"].children[0];
   assert.equal(historyChart.children.filter((n) => n.tag === "circle").length, 4);
   assert.equal(historyChart.children.filter((n) => n.tag === "path").length, 2);
@@ -341,13 +395,21 @@ async function main(hostname, expectedBase) {
   assert(ids["history-chart"].children[0].children.filter((n) => n.tag === "path")
     .every((n) => !n.attributes.d.includes("L")), "fold boundaries stay separate");
   context.renderEvaluationHistory("Missing");
-  assert.match(ids["history-summary"].textContent, /No scored 6-hour-ahead/);
+  assert.match(ids["history-summary"].textContent, /No past predictions made 6 hours ahead/);
   assert.equal(ids["history-chart"].children.length, 0);
   assert.deepEqual(requests, [
     { url: `${expectedBase}/api/predictions`, method: "GET" },
     { url: `${expectedBase}/api/evaluation-history?horizon=6`, method: "GET" },
   ],
     "page load reads predictions; renders, toggles, and timers never POST refresh");
+  const fullName = "Marino Center — Second Floor Cardio";
+  context.renderLocation({ locations: { [fullName]: [prediction("open", 5)] },
+    forecast_origin: { [fullName]: iso(-60) }, generated_at: iso(-5) }, fullName, now);
+  assert.equal(ids["forecast-heading"].textContent, "Second Floor Cardio");
+  assert.equal(ids["location-facility"].textContent, "Marino Center");
+  assert.equal(ids["history-location"].textContent, fullName, "history still keys on the full name");
+  assert.equal(ids["forecast-origin"].textContent, context.formatTimestamp(iso(-60)));
+  assert.equal(ids["generated-at"].textContent, context.formatTimestamp(iso(-5)));
   context.enhanceLocationPicker(["Marino Center Floor 1", "SquashBusters Courts", "Unmatched long name"]);
   assert.equal(options().length, 3);
   assert.equal(ids["location-menu"].children[0].attributes["aria-label"], "Marino Center");
@@ -358,6 +420,12 @@ async function main(hostname, expectedBase) {
 }
 
 async function run() {
+  const html = fs.readFileSync(path.join(__dirname, "../web/index.html"), "utf8");
+  assert(html.indexOf('id="recommended-heading"') < html.indexOf('id="next-heading"'));
+  assert(html.indexOf('id="next-heading"') < html.indexOf('id="best-times-heading"'));
+  assert.match(html, /Past predictions vs\. actual occupancy/);
+  assert.match(html, /Average prediction error \(MAE\)/);
+
   for (const [hostname, expectedBase] of [
     ["localhost", "http://127.0.0.1:5000"],
     ["127.0.0.1", "http://127.0.0.1:5000"],
