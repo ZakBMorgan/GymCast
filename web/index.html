@@ -30,7 +30,10 @@
             <button id="location-trigger" class="location-trigger" type="button"
               aria-haspopup="listbox" aria-expanded="false" aria-controls="location-menu"
               aria-labelledby="location-label location-selected">
-              <span id="location-selected"></span><span class="location-chevron" aria-hidden="true"></span>
+              <span id="location-selected"></span>
+              <svg class="location-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M4 6 L8 10 L12 6" />
+              </svg>
             </button>
             <div id="location-menu" class="location-menu" role="listbox"
               aria-labelledby="location-label" hidden></div>
@@ -87,7 +90,8 @@
             <h3 id="chart-heading">Forecast timeline</h3>
             <p>Predicted occupancy · People</p>
           </div>
-          <div id="forecast-chart" class="chart-scroll" tabindex="0" aria-label="Occupancy chart; scroll horizontally on small screens"></div>
+          <div id="forecast-chart" class="chart-scroll" tabindex="0" aria-describedby="forecast-scroll-hint" aria-label="Occupancy chart; scroll horizontally on small screens"></div>
+          <p id="forecast-scroll-hint" class="chart-scroll-hint" hidden>Swipe or scroll to explore all forecast hours →</p>
           <div class="chart-legend" aria-label="Chart legend">
             <span><i class="legend-line" aria-hidden="true"></i> Current forecast</span>
             <span><i class="legend-closed" aria-hidden="true"></i> Closed hour</span>

@@ -230,13 +230,19 @@ using artifacts produced under the previous timestamp interpretation.
   Expired current evidence is presented as a timestamped schedule snapshot.
   A capacity-first overview stacks the target time, capped visual bar, and secondary
   predicted people count. The floating menu has a clear border/shadow; the forecast
-  SVG uses a 760px minimum width with internal mobile scrolling. The in-page location listbox groups recognizable facility names,
+  SVG uses a 760px minimum width with internal mobile scrolling; a secondary
+  swipe/scroll hint appears only on narrow viewports with actual chart overflow.
+  The dropdown has one visible keyboard focus ring and a down/up SVG chevron.
+  Desktop overview padding is slightly tighter; mobile spacing is retained.
+  The in-page location listbox groups recognizable facility names,
   retains unmatched locations, supports keyboard navigation, and enhances the
   native select only after successful population. The top quietest upcoming
   recommendation has a distinct restrained treatment. The optional
   `node tests/preview_frontend.cjs` uses hour-aligned synthetic targets (the earlier
   temporary preview retained wall-clock minutes). Synthetic-fixture Chrome
-  previews at 1440, 375, 390, and 430px show no page-wide overflow; iOS Safari
+  previews at 1440, 375, 390, and 430px show no page-wide overflow. Final checks
+  include keyboard-focused/open menus, viewport containment and stacking, chart
+  scrolling/hint visibility, empty/expired states, and two-series history; iOS Safari
   and assistive technology have not been directly tested.
   A compact summary lists up to three quietest fully open hours; local date
   headings group the table. Metadata is compact and explanations are collapsible.

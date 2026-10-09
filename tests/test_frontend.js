@@ -24,6 +24,7 @@ function element(tag) {
     },
     append(...children) { children.forEach((child) => this.appendChild(child)); },
     replaceChildren() { text = ""; this.children = []; },
+    querySelector(tag) { return this.children.find((child) => child.tag === tag) ?? null; },
     focus() { element.active = this; },
     contains(target) { return this === target || this.children.some((child) => child.contains(target)); },
     setAttribute(name, value) { this.attributes[name] = String(value); },
@@ -70,13 +71,14 @@ async function main(hostname, expectedBase) {
     "next-time", "next-availability", "forecast-chart", "forecast-freshness",
     "history-chart", "history-summary", "history-location",
     "location-label", "location-picker", "location-trigger", "location-menu", "location-selected",
-    "next-capacity-track", "next-capacity-fill", "next-percent-note",
+    "next-capacity-track", "next-capacity-fill", "next-percent-note", "forecast-scroll-hint",
   ].map((id) => [id, element(id === "location-select" ? "select" : "div")]));
   let interval;
   const listeners = {};
   const requests = [];
   const context = vm.createContext({
-    window: { location: { hostname } },
+    window: { location: { hostname }, innerWidth: 1440,
+      addEventListener: (name, handler) => { listeners[`window:${name}`] = handler; } },
     console: { log() {}, error() {} }, Date,
     document: { addEventListener: (name, handler) => { listeners[name] = handler; }, getElementById: (id) => ids[id], createElement: element,
       createElementNS: (_namespace, tag) => element(tag) },
@@ -138,6 +140,19 @@ async function main(hostname, expectedBase) {
   assert.equal(ids["next-count"].textContent, "10", "summary skips closed, partial, and unknown hours");
   assert.equal(ids["next-percent"].textContent, "20%");
   assert.equal(ids["next-availability"].textContent, "Scheduled open");
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "desktop has no swipe hint");
+  ids["forecast-chart"].clientWidth = 320;
+  ids["forecast-chart"].scrollWidth = 760;
+  context.window.innerWidth = 390;
+  listeners["window:resize"]();
+  assert.equal(ids["forecast-scroll-hint"].hidden, false, "mobile chart overflow shows hint");
+  ids["forecast-chart"].scrollWidth = 320;
+  listeners["window:resize"]();
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "no hint without actual overflow");
+  ids["forecast-chart"].scrollWidth = 760;
+  context.window.innerWidth = 1440;
+  listeners["window:resize"]();
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "wide layout hides hint even with overflow");
   const chart = ids["forecast-chart"].children[0];
   assert.equal(chart.attributes.role, "img");
   assert.equal(chart.children.filter((node) => node.tag === "circle").length, 8);
@@ -214,6 +229,9 @@ async function main(hostname, expectedBase) {
   context.renderLocation({ locations: { Empty: [] } }, "Empty", now);
   assert.equal(ids["next-count"].textContent, "—");
   assert.match(ids["forecast-chart"].textContent, /No occupancy forecast/);
+  context.window.innerWidth = 390;
+  context.updateForecastScrollHint();
+  assert.equal(ids["forecast-scroll-hint"].hidden, true, "empty chart has no swipe hint");
   context.renderForecastChart([prediction("open", 0)], now);
   assert.equal(ids["forecast-chart"].children[0].children.filter((n) => n.tag === "circle").length, 1);
   assert(!JSON.stringify(ids["forecast-chart"].children[0]).includes("NaN"));

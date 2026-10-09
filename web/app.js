@@ -29,8 +29,6 @@ async function loadPredictions() {
       return;
     }
 
-    console.log("GymCast predictions:", data);
-
     const locationSelect = document.getElementById("location-select");
 
     locationSelect.replaceChildren();
@@ -350,6 +348,20 @@ function svgElement(tag, attributes, text) {
   return element;
 }
 
+function updateForecastScrollHint() {
+  const chart = document.getElementById("forecast-chart");
+  document.getElementById("forecast-scroll-hint").hidden = !(
+    window.innerWidth <= 540 && chart.querySelector("svg")
+    && chart.clientWidth > 0 && chart.scrollWidth > chart.clientWidth + 1
+  );
+}
+
+window.addEventListener("resize", updateForecastScrollHint);
+// Observe container changes as well as viewport resizes (including embedded layouts).
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(updateForecastScrollHint).observe(document.getElementById("forecast-chart"));
+}
+
 function renderForecastChart(predictions, now) {
   const container = document.getElementById("forecast-chart");
   container.replaceChildren();
@@ -362,6 +374,7 @@ function renderForecastChart(predictions, now) {
     empty.classList.add("empty-state");
     empty.textContent = "No occupancy forecast available to chart.";
     container.appendChild(empty);
+    updateForecastScrollHint();
     return;
   }
 
@@ -447,6 +460,7 @@ function renderForecastChart(predictions, now) {
     })));
   }
   container.appendChild(svg);
+  updateForecastScrollHint();
 }
 
 function createCapacityCell(percent) {
