@@ -71,7 +71,12 @@ def bucket_to_hour(df: pd.DataFrame) -> pd.DataFrame:
     (capacity shouldn't change, but max is a safe aggregator).
     Also carries forward an is_open flag if present.
     """
-    df["hour_bucket"] = df["timestamp"].dt.floor("h")
+    stamps = df["timestamp"]
+    # Floor aware instants in UTC so the two fall-back 01:00 hours stay distinct.
+    # New York offsets are whole hours; conversion preserves local hour boundaries.
+    df["hour_bucket"] = (stamps.dt.tz_convert("UTC").dt.floor("h")
+                         .dt.tz_convert(stamps.dt.tz)
+                         if stamps.dt.tz is not None else stamps.dt.floor("h"))
 
     agg = {
         "count": "mean",
@@ -99,6 +104,15 @@ def regularize_hourly(df: pd.DataFrame) -> pd.DataFrame:
     NaN, which the model treats as missing rather than as zero occupancy.
     Idempotent, so it is safe to call again on an already-regular panel.
     """
+    # CSVs spanning DST offsets can parse as object rather than a datetime dtype.
+    # Restore one timezone-aware axis before positional lags or hourly extension.
+    if not pd.api.types.is_datetime64_any_dtype(df["hour_bucket"]):
+        df = df.copy()
+        stamps = df["hour_bucket"].map(pd.Timestamp)
+        if stamps.map(lambda stamp: stamp.tzinfo is not None).all():
+            df["hour_bucket"] = pd.to_datetime(stamps, utc=True).dt.tz_convert("America/New_York")
+        else:
+            df["hour_bucket"] = pd.to_datetime(stamps)
     frames = []
     for loc, g in df.groupby("location_name", sort=False):
         g = g.set_index("hour_bucket").sort_index()

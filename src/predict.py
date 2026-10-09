@@ -34,6 +34,7 @@ from features import (
     add_academic_calendar,
     add_cyclical_time_features,
     build_supervised_frame,
+    regularize_hourly,
 )
 from train import load_bundle, predict_with
 
@@ -121,7 +122,7 @@ def main(model_path: str, features_path: str, hours_ahead: int, output_path: str
          live_path: str | None = "../data/marino_counts.csv"):
     hours, overrides = load_config(hours_path, overrides_path)
     bundle = load_bundle(model_path)
-    panel = pd.read_csv(features_path, parse_dates=["hour_bucket"])
+    panel = regularize_hourly(pd.read_csv(features_path, parse_dates=["hour_bucket"]))
 
     frame = forecast(bundle, panel, hours_ahead, calendar_path)
 

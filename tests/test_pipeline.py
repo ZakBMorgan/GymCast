@@ -325,6 +325,55 @@ def test_raw_utc_timestamps_are_converted_before_hourly_bucketing():
         assert path.read_text() == raw, "loading must never rewrite raw history"
 
 
+def test_hour_alignment_survives_dst_and_forecast_serialization():
+    for stamps, expected_hours in [
+        (["2026-10-09T17:03:27Z", "2026-10-09T18:08:00Z"], [13, 14]),
+        (["2026-11-01T05:03:00Z", "2026-11-01T06:03:00Z"], [1, 1]),
+        (["2026-03-08T06:03:00Z", "2026-03-08T07:03:00Z"], [1, 3]),
+    ]:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "raw.csv"
+            original = "timestamp,location_name,count,capacity,percent\n" + "".join(
+                f"{stamp},Cardio,{count},100,{count}\n"
+                for stamp, count in zip(stamps, [10, 20]))
+            path.write_text(original)
+            hourly = bucket_to_hour(load_raw(str(path)))
+            assert hourly["hour_bucket"].dt.hour.tolist() == expected_hours
+            assert hourly["hour_bucket"].dt.minute.eq(0).all()
+            assert hourly["hour_bucket"].dt.second.eq(0).all()
+            assert hourly["count"].tolist() == [10, 20]
+            assert hourly["hour_bucket"].is_unique
+            assert path.read_text() == original
+            panel_path = Path(directory) / "panel.csv"
+            hourly.to_csv(panel_path, index=False)
+            reloaded = regularize_hourly(pd.read_csv(panel_path, parse_dates=["hour_bucket"]))
+            assert reloaded["hour_bucket"].tolist() == hourly["hour_bucket"].tolist()
+            panel = add_cyclical_time_features(regularize_hourly(reloaded.iloc[:1]))
+            origins = predict.latest_origins(panel)
+            extended = predict.extend_panel(panel, origins, 3, None)
+            frame = build_supervised_frame(extended, [1, 2, 3])
+            frame = frame[frame["origin_bucket"] == origins["Cardio"]].copy()
+            frame["predicted_count"] = 30.0
+            payload = predict.to_website_json(frame, {"Cardio": 100})
+            targets = [pd.Timestamp(row["time"]) for row in payload["Cardio"]]
+            assert len(targets) == 3
+            assert all(t.minute == 0 and t.second == 0 for t in targets)
+            assert all(t - origins["Cardio"] == pd.Timedelta(hours=h)
+                       for t, h in zip(targets, [1, 2, 3]))
+            # The API returns target strings verbatim, without another timezone conversion.
+            import serve
+            saved_path = serve.PREDICTIONS_FILE
+            try:
+                import json
+                output = Path(directory) / "predictions.json"
+                output.write_text(json.dumps({"locations": payload}))
+                serve.PREDICTIONS_FILE = str(output)
+                response = serve.app.test_client().get("/api/predictions")
+                assert response.get_json()["locations"] == payload
+            finally:
+                serve.PREDICTIONS_FILE = saved_path
+
+
 def test_timezone_aware_panel_uses_local_calendar_date():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)

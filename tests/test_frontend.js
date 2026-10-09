@@ -241,6 +241,13 @@ async function main(hostname, expectedBase) {
   assert.equal(ids["next-capacity-track"].hidden, true);
   assert.match(ids["next-percent-note"].textContent, /unavailable/);
   assert.equal(ids["quiet-hours-summary"].children[0].classList.has("best-recommendation"), false);
+  assert.match(context.formatTimestamp("2026-10-09T18:00:00Z"), /2:00 PM/);
+  assert.match(context.formatTimestamp("2026-10-09T18:03:00Z"), /2:03 PM/,
+    "formatter must preserve supplied minutes rather than conceal misalignment");
+  for (const stamp of ["2026-11-01T05:00:00Z", "2026-11-01T06:00:00Z"]) {
+    assert.match(context.formatTimestamp(stamp), /1:00 AM/);
+  }
+  assert.match(context.formatTimestamp("2026-03-08T07:00:00Z"), /3:00 AM/);
   // Fixed clock and offset-bearing timestamps verify comparisons are chronological.
   const fixedNow = Date.parse("2026-10-05T04:00:00Z");
   const timeline = [

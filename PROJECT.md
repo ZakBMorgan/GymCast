@@ -140,7 +140,7 @@ refresh, and model retraining have separate lifecycles.
 _Last updated: 2026-10-09_
 
 - Collection, hourly panel construction, training, evaluation, prediction, and
-  Flask API are implemented. Ten synthetic pipeline tests cover timezone loading,
+  Flask API are implemented. Eleven synthetic pipeline tests cover timezone loading,
   feature leakage, fold
   boundaries, representation consistency, serving parity, and a model smoke test.
   Run `venv/bin/python tests/test_pipeline.py` for the standalone suite.
@@ -208,7 +208,12 @@ page-wide overflow.
 Legacy naive raw timestamps now mean UTC, not New York local time. The collector
 writes explicit UTC offsets going forward. Hourly aggregation and ML behavior
 are otherwise unchanged; calendar joins use the local civil date, and the live
-raw-poll reader applies the same UTC interpretation. Raw CSVs are not rewritten.
+raw-poll reader applies the same UTC interpretation. Aware hourly bucketing floors
+in UTC before converting back to New York, retaining both repeated fall-back
+hours without ambiguity. Mixed-offset saved panels normalize to one timezone-aware
+axis before shifts and forecast extension. Synthetic coverage traces ordinary and DST buckets
+through forecast target construction, JSON serialization, and the API. Raw CSVs
+are not rewritten. See [timestamp investigation](docs/timestamp_investigation.md).
 Rebuild features, retrain, regenerate predictions, and rerun evaluation before
 using artifacts produced under the previous timestamp interpretation.
 
@@ -223,11 +228,14 @@ using artifacts produced under the previous timestamp interpretation.
   both scheduled and effective status to be fully open. Current live reports and
   conflicts appear beside timestamps; expiry is rechecked every 30 seconds.
   Expired current evidence is presented as a timestamped schedule snapshot.
-  A capacity-first overview includes a capped visual bar and secondary predicted
-  people count. The in-page location listbox groups recognizable facility names,
+  A capacity-first overview stacks the target time, capped visual bar, and secondary
+  predicted people count. The floating menu has a clear border/shadow; the forecast
+  SVG uses a 760px minimum width with internal mobile scrolling. The in-page location listbox groups recognizable facility names,
   retains unmatched locations, supports keyboard navigation, and enhances the
   native select only after successful population. The top quietest upcoming
-  recommendation has a distinct restrained treatment. Synthetic-fixture Chrome
+  recommendation has a distinct restrained treatment. The optional
+  `node tests/preview_frontend.cjs` uses hour-aligned synthetic targets (the earlier
+  temporary preview retained wall-clock minutes). Synthetic-fixture Chrome
   previews at 1440, 375, 390, and 430px show no page-wide overflow; iOS Safari
   and assistive technology have not been directly tested.
   A compact summary lists up to three quietest fully open hours; local date

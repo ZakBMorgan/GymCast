@@ -125,6 +125,7 @@ h3 { font-size: 16px; font-weight: 650; letter-spacing: -0.2px; }
 /* Native SVG chart; the full timeline remains available even when table rows are hidden. */
 .chart-scroll, .table-scroll { overflow-x: auto; }
 .chart-scroll svg { display: block; width: 100%; min-width: 560px; height: auto; }
+#forecast-chart svg { min-width: 760px; }
 .chart-grid { stroke: var(--border); stroke-width: 1; }
 .chart-axis-label { fill: var(--muted); font-size: 11px; font-family: inherit; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
@@ -214,7 +215,8 @@ path.history-actual, path.history-predicted { fill: none; }
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 10;
   max-height: min(360px, 55vh); overflow-y: auto; overscroll-behavior: contain;
   padding: 6px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-md); box-shadow: 0 8px 24px rgb(28 41 52 / 10%);
+  border-radius: var(--radius-md); border-color: #bdc8c3;
+  box-shadow: 0 12px 32px rgb(28 41 52 / 16%), 0 2px 6px rgb(28 41 52 / 8%);
 }
 .location-group-label { padding: 10px 10px 4px; font-size: 11px; color: var(--muted); font-weight: 650; }
 .location-option {
@@ -228,20 +230,20 @@ path.history-actual, path.history-predicted { fill: none; }
 .location-option[aria-selected="true"] { color: var(--accent); font-weight: 600; }
 .location-option[aria-selected="true"] .location-check { visibility: visible; }
 h2 { overflow-wrap: anywhere; }
-.forecast-metrics { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px 24px; }
+.forecast-metrics { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .forecast-target { grid-column: 1 / -1; }
 .target-time { font-size: 17px; font-weight: 600; margin: 4px 0; overflow-wrap: anywhere; }
 .capacity-metric .metric-value { font-size: clamp(40px, 5vw, 54px); color: var(--accent); overflow-wrap: anywhere; }
 .overview-capacity-track { height: 6px; background: var(--border); overflow: hidden; border-radius: 3px; margin: 8px 0; }
-.people-value { font-size: 28px; font-weight: 600; margin-top: 12px; font-variant-numeric: tabular-nums; }
-.people-value .metric-unit { display: block; }
+.people-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.people-value .metric-unit { display: inline; }
 .quiet-summary li { padding: 12px 14px; border-color: var(--border); }
 .quiet-summary .best-recommendation { background: var(--accent-soft); border-color: var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 .quiet-summary .recommendation-label { font-size: 11px; color: var(--accent); font-weight: 650; margin: 0 0 4px; }
 .closed-toggle { min-height: 44px; }
 @media (max-width: 540px) {
   .quiet-summary li { display: block; }
-  .forecast-metrics { gap: 18px; }
+  .forecast-metrics { gap: 10px; }
   .quiet-summary { gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
