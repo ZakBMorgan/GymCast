@@ -18,10 +18,11 @@ Usage (run from src/, defaults point at ../data and ../models):
     python train.py
     python train.py --input ../data/features.csv --model-out ../models/model.pkl
 """
-
 import argparse
+import os
 import pickle
 import sys
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -154,8 +155,25 @@ def predict_with(bundle: dict, df: pd.DataFrame) -> np.ndarray:
 
 
 def save_bundle(bundle: dict, path: str) -> None:
-    with open(path, "wb") as f:
-        pickle.dump(bundle, f)
+    directory = os.path.dirname(os.path.abspath(path))
+
+    fd, temp_path = tempfile.mkstemp(
+        prefix=".model-",
+        suffix=".tmp",
+        dir=directory,
+    )
+
+    try:
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump(bundle, f)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(temp_path, path)
+
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def load_bundle(path: str) -> dict:
