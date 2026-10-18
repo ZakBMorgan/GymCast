@@ -148,11 +148,11 @@ _Last updated: 2026-10-09_
 - The local September artifacts contain weeks of observations, not the original
   single poll. Generated data and model files remain gitignored; development
   and regression checks should use the synthetic fixture.
-- The current `outputs/eval.json` reports 117,791 scored predictions over four
-  weekly folds ending September 13, 20, 27, and October 4, 2026 (New York time).
-  Open-hour evaluation covers horizons 1–24. Model MAE is 7.5749 occupants vs.
-  8.5061 for the strongest overall baseline, `seasonal_naive_168h`: 10.9% lower
-  MAE. Aggregate bias is -1.0408. These supersede the earlier September report;
+- The current `outputs/eval.json` reports 116,928 scored predictions over four
+  weekly folds ending September 26, October 3, 10, and 17, 2026 (New York time).
+  Open-hour evaluation covers horizons 1–24. Model MAE is 6.1179 occupants vs.
+  6.7490 for the strongest overall baseline, `seasonal_naive_168h`: 9.4% lower
+  MAE. Aggregate bias is 1.7593. These supersede the earlier September report;
   they are aggregate results, not a claim of superiority at every horizon/fold.
 - The origin-cutoff regression is fixed. The walkthrough now explains the
   separate workflows, known future context, backend encoding, and fold timing.
@@ -198,7 +198,7 @@ walk-forward predictions for the selected location, with series-specific MAE,
 scope and date range. Unscored hours and fold boundaries remain chart gaps.
 Current forecasting, availability, models, splits, baselines, and metrics are unchanged.
 Run `venv/bin/python tests/test_evaluation_history.py` for export/API checks.
-The local export was generated with four default walk-forward folds: 117,791
+The local export was generated with four default walk-forward folds: 116,928
 scored rows, including 5,112 at horizon 6. This is a new evaluation run, not
 recovered predictions from the older aggregate report. Export/API and frontend
 checks pass; saved-data desktop and 390px mobile previews show both series without

@@ -1954,9 +1954,9 @@ aggregate metrics
 individual fold results
 ```
 
-The current saved report scores 117,791 predictions across four weekly folds
-with open-hour targets and horizons 1–24. Model MAE is 7.57 occupants, 10.9%
-lower than the strongest overall baseline (same hour last week, MAE 8.51).
+The current saved report scores 116,928 predictions across four weekly folds
+with open-hour targets and horizons 1–24. Model MAE is 6.12 occupants, 9.4%
+lower than the strongest overall baseline (same hour last week, MAE 6.75).
 Use unrounded values when calculating the improvement. These aggregate results
 supersede the September 30 report; see [Current State](../PROJECT.md#current-state)
 for scope and remaining evaluation questions.
