@@ -22,7 +22,7 @@ estimates—not live counts or guaranteed availability.
 
 | Walk-forward predictions | Model MAE | Improvement vs. strongest overall baseline |
 |:--|:--|:--|
-| **117,791** | **7.57 people** | **10.9% lower MAE** |
+| **116,928** | **6.12 people** | **9.4% lower MAE** |
 
 Results from four weekly evaluation folds across 1–24-hour horizons, scored
 on eligible open hours. The strongest overall baseline was the same hour last
