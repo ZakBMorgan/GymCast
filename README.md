@@ -26,7 +26,7 @@ estimates—not live counts or guaranteed availability.
 
 Results from four weekly evaluation folds across 1–24-hour horizons, scored
 on eligible open hours. The strongest overall baseline was the same hour last
-week (MAE 8.51). These are aggregate backtest results, not a guarantee of
+week (MAE 6.75). These are aggregate backtest results, not a guarantee of
 future accuracy.
 
 ## Preview
@@ -60,8 +60,8 @@ average. Each evaluation fold fits a fresh model on the past and tests forecasts
 issued at or after that fit's cutoff. Every method is scored on the same valid
 rows; the strongest baseline is determined by the results.
 
-The saved evaluation report contains 117,791 scored predictions: model MAE 7.57
-versus 8.51 for the strongest overall baseline. These are aggregate results;
+The saved evaluation report contains 116,928 scored predictions: model MAE 6.12
+versus 6.75 for the strongest overall baseline. These are aggregate results;
 performance can vary by horizon and evaluation period. See
 [the current state](PROJECT.md#current-state) for the evidence and remaining work.
 
