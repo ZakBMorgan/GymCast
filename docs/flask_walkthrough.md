@@ -716,6 +716,11 @@ frontend rendering
 
 ## 7. `POST /api/refresh`
 
+> **Current behaviour:** this route and CORS are now registered only by
+> `create_app(dev=True)`, which `python serve.py` uses. Production
+> `gunicorn serve:app` serves neither. The walkthrough below explains the route
+> itself.
+
 Gymcast's second route performs work rather than simply reading existing data.
 
 ```python

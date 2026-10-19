@@ -38,7 +38,8 @@ cd src
 
 The collector sleeps between polls itself; do not schedule overlapping copies.
 Run tests from the repository root. `POST /api/refresh` runs features → predict
-with the saved model; it does not collect or retrain.
+with the saved model; it does not collect or retrain. It and CORS exist only on
+the development server (`python serve.py`); `gunicorn serve:app` serves neither.
 
 Useful flags: `evaluate.py --folds N --test-days N --min-train-days N
 --max-horizon N --all-hours --report-out PATH`; `train.py --max-horizon N`;

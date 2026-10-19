@@ -3077,6 +3077,10 @@ API origin
 
 and CORS permits the browser request.
 
+This is now enabled only on the development server (`create_app(dev=True)`),
+where the page and the API run on different local ports. In production Nginx
+serves both from one origin, so no CORS headers are sent.
+
 The browser-security mechanics are outside the scope of this pipeline guide.
 
 ### Key Takeaway
