@@ -1,8 +1,13 @@
-requests
-pandas
-numpy
-scikit-learn
-lightgbm
-flask
-flask-cors
-python-dotenv
+# Direct dependencies, pinned to the versions running in production (Python 3.12)
+# and verified by the test suites and the current evaluation report. Upgrade
+# deliberately: bump a pin, run every suite, and compare evaluation output.
+requests==2.34.2
+pandas==3.0.5
+numpy==2.5.1
+scikit-learn==1.9.0
+lightgbm==4.7.0
+flask==3.1.3
+flask-cors==6.0.5
+python-dotenv==1.2.2
+# Production WSGI server (systemd gymcast-api.service); not needed for local runs.
+gunicorn==26.2.0
