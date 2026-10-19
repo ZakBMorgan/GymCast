@@ -85,7 +85,9 @@ eligibility check, not a filter removing every missing-origin row. Training
 warns below 14 days of history; weekly features need at least a week.
 
 The bundle stores `model`, `feature_cols`, `category_levels`, `used_lgb`,
-`horizons`, `trained_through`, `n_train_rows`, and `params`. `design_matrix()`
+`horizons`, `trained_through`, `n_train_rows`, and `params`. Bundles saved by
+`train.py` also carry `provenance`: git commit (and whether tracked files were
+modified), Python and library versions, and the features file's SHA-256. `design_matrix()`
 reapplies the training vocabulary: pandas categoricals for LightGBM, fixed
 one-hot columns for sklearn. Unseen categories become missing, represented
 as all-zero indicators in the fallback. Old bundles lacking category metadata

@@ -418,6 +418,29 @@ def test_model_beats_persistence_on_synthetic_data():
     assert set(model_columns(train)) == set(bundle["feature_cols"])
 
 
+def test_saved_bundle_records_provenance():
+    """A production bundle says which code, libraries and data produced it."""
+    import contextlib
+    import hashlib
+    import io
+    import train
+
+    with tempfile.TemporaryDirectory() as directory:
+        features_path = Path(directory) / "features.csv"
+        model_path = Path(directory) / "model.pkl"
+        synthetic_panel(weeks=3).to_csv(features_path, index=False)
+        with contextlib.redirect_stdout(io.StringIO()):
+            train.train_model(str(features_path), str(model_path), horizons=[1, 24])
+        provenance = train.load_bundle(str(model_path))["provenance"]
+        expected_digest = hashlib.sha256(features_path.read_bytes()).hexdigest()
+
+    assert provenance["features_sha256"] == expected_digest
+    assert provenance["packages"]["pandas"] == pd.__version__
+    assert provenance["locations"] == sorted(LOCATIONS)
+    git = provenance["git"]
+    assert git is None or (len(git["commit"]) == 40 and isinstance(git["dirty"], bool))
+
+
 # --------------------------------------------------------------------------
 
 if __name__ == "__main__":
