@@ -18,7 +18,7 @@ campus-wide count during the target hour) is both unknowable when forecasting
 *and* a partial copy of the label. Keeping lag construction out of the panel
 and parameterizing it by horizon makes that class of mistake hard to write.
 
-Usage (run from src/, defaults point at ../data):
+Usage (defaults point at the repository's data/ directory):
     python features.py
     python features.py --input ../data/marino_counts.csv --output ../data/features.csv
 """
@@ -29,6 +29,7 @@ import os
 import numpy as np
 import pandas as pd
 
+import paths
 from fileio import atomic_write_text
 
 
@@ -275,9 +276,9 @@ build_features = build_panel
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", default="../data/marino_counts.csv")
-    parser.add_argument("--output", default="../data/features.csv")
-    parser.add_argument("--calendar", default="../data/academic_calendar.csv",
+    parser.add_argument("--input", default=str(paths.RAW_COUNTS))
+    parser.add_argument("--output", default=str(paths.FEATURES))
+    parser.add_argument("--calendar", default=str(paths.ACADEMIC_CALENDAR),
                         help="academic calendar csv (date, semester_phase); pass --calendar '' to skip")
     args = parser.parse_args()
 

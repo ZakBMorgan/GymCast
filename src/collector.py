@@ -30,12 +30,13 @@ from urllib.parse import quote, quote_plus
 import requests
 from dotenv import load_dotenv
 
+import paths
+
 URL = "https://goboardapi.azurewebsites.net/api/FacilityCount/GetCountsByAccount"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-CSV_FILE = os.path.join(DATA_DIR, "marino_counts.csv")
-ERROR_LOG_FILE = os.path.join(DATA_DIR, "poll_errors.csv")
+CSV_FILE = str(paths.RAW_COUNTS)
+ERROR_LOG_FILE = str(paths.POLL_ERRORS)
 
 POLL_SECONDS = 300  # 5 minutes
 
@@ -146,7 +147,7 @@ def main() -> None:
     api_key = os.environ.get("GOBOARD_API_KEY")
     if not api_key:
         sys.exit("collector.py: GOBOARD_API_KEY not set. Add it to your .env file.")
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(paths.DATA_DIR, exist_ok=True)
 
     print("Collector started...")
     while True:

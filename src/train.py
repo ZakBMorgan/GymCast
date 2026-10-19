@@ -14,7 +14,7 @@ Training here fits on all available history and reports nothing about accuracy
 on purpose - run evaluate.py for that, since an honest number needs
 walk-forward folds rather than a single lucky holdout.
 
-Usage (run from src/, defaults point at ../data and ../models):
+Usage (defaults point at the repository's data/ and models/ directories):
     python train.py
     python train.py --input ../data/features.csv --model-out ../models/model.pkl
 """
@@ -25,6 +25,7 @@ import sys
 import numpy as np
 import pandas as pd
 
+import paths
 from fileio import atomic_write_bytes
 from features import (
     CATEGORICAL_COLS,
@@ -211,8 +212,8 @@ def train_model(input_path: str, model_out: str, horizons=DEFAULT_HORIZONS) -> d
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", default="../data/features.csv")
-    parser.add_argument("--model-out", default="../models/model.pkl")
+    parser.add_argument("--input", default=str(paths.FEATURES))
+    parser.add_argument("--model-out", default=str(paths.MODEL))
     parser.add_argument("--max-horizon", type=int, default=max(DEFAULT_HORIZONS),
                         help="train for forecasts 1..N hours ahead")
     args = parser.parse_args()

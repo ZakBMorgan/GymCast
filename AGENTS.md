@@ -22,8 +22,9 @@ the backend line `train.py` prints, so check it before comparing runs.
 
 ## Running
 
-All scripts default to `../data`, `../models`, `../outputs` relative to `src/`,
-so run them from `src/` with no flags:
+Default paths come from `src/paths.py` and point at the repository's `data/`,
+`models/` and `outputs/` from any working directory. Production runs them from
+`src/` (flat imports need it on the path), so the examples do too:
 
 ```bash
 cd src
@@ -80,6 +81,7 @@ deliberate so the tests run anywhere.
 | `src/serve.py` | Flask API |
 | `src/availability.py` | Schedule classification and expiring current-state evidence |
 | `src/fileio.py` | Atomic writes; every published artifact goes through it |
+| `src/paths.py` | Default file locations; add new artifacts here, not as `../` strings |
 | `tests/test_pipeline.py` | Leakage and skew assertions — the real spec |
 
 ## Do not change casually

@@ -19,12 +19,14 @@ import sys
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+import paths
+
 app = Flask(__name__)
 CORS(app)  # allow your website's frontend JS to fetch this cross-origin
 
 BASE_DIR = os.path.dirname(__file__)
-EVALUATION_FILE = os.path.join(BASE_DIR, "..", "outputs", "evaluation_predictions.json")
-PREDICTIONS_FILE = os.path.join(BASE_DIR, "..", "outputs", "predictions.json")
+EVALUATION_FILE = str(paths.EVALUATION_PREDICTIONS)
+PREDICTIONS_FILE = str(paths.PREDICTIONS)
 
 
 @app.route("/api/predictions", methods=["GET"])
