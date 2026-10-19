@@ -90,6 +90,21 @@ systemctl start gymcast-train.service     # retrain now
 `evaluate.py` refits a model for each fold; on this 1 GB host, run it when the
 train job is not running.
 
+## When the nightly retrain fails
+
+`train.py` exits non-zero, so `systemctl --failed` lists `gymcast-train.service`
+and `journalctl -u gymcast-train` shows why. The serving model is untouched: a
+new model replaces `models/model.pkl` only after it passes validation. There is
+no automatic switch to the sklearn backend.
+
+To roll back a model that trained successfully but forecasts badly:
+
+```bash
+cd /root/gym_predictor/models
+cp model.pkl model.rejected.pkl && cp model.previous.pkl model.pkl
+systemctl start gymcast-refresh.service   # republish forecasts from it
+```
+
 ## Known risks
 
 - **Leaked API key.** Before the collector fix on branch

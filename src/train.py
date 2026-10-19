@@ -14,9 +14,15 @@ Training here fits on all available history and reports nothing about accuracy
 on purpose - run evaluate.py for that, since an honest number needs
 walk-forward folds rather than a single lucky holdout.
 
+Backends are chosen explicitly, never substituted: LightGBM by default, or
+scikit-learn's HistGradientBoostingRegressor with --backend sklearn (or
+GYMCAST_BACKEND=sklearn). If the requested backend cannot load or fit, training
+fails loudly and the previously published model stays in place.
+
 Usage (defaults point at the repository's data/ and models/ directories):
     python train.py
     python train.py --input ../data/features.csv --model-out ../models/model.pkl
+    python train.py --backend sklearn
 """
 import argparse
 import hashlib
@@ -41,25 +47,53 @@ from features import (
     build_supervised_frame,
 )
 
+# HistGradientBoosting, not GradientBoosting: lag features are legitimately
+# NaN wherever history is short or polling dropped, and the plain
+# GradientBoostingRegressor rejects NaN outright.
+from sklearn.ensemble import HistGradientBoostingRegressor
+
 try:
     import lightgbm as lgb
-    HAS_LGB = True
-except (ImportError, OSError):
+    LGB_IMPORT_ERROR = None
+except (ImportError, OSError) as exc:
     # OSError too, not just ImportError: on macOS the lightgbm wheel imports
     # fine until it dlopens lib_lightgbm.dylib and finds no libomp, which
-    # raises OSError. Catching only ImportError turns a missing OpenMP runtime
-    # into a hard crash on `import train` instead of a fallback.
-    HAS_LGB = False
-    # HistGradientBoosting, not GradientBoosting: lag features are legitimately
-    # NaN wherever history is short or polling dropped, and the plain
-    # GradientBoostingRegressor rejects NaN outright.
-    from sklearn.ensemble import HistGradientBoostingRegressor
+    # raises OSError. Catching only ImportError would crash `import train`
+    # even for an explicit sklearn run. The error is kept so that requesting
+    # LightGBM reports it, instead of silently training with sklearn.
+    lgb = None
+    LGB_IMPORT_ERROR = exc
+HAS_LGB = lgb is not None
+
+BACKENDS = ("lightgbm", "sklearn")
 
 DEFAULT_PARAMS = {"n_estimators": 300, "learning_rate": 0.05, "num_leaves": 31}
 
 # Below this the boosters fail somewhere in their own internals rather than
 # telling you the real problem, which is that there is not enough history yet.
 MIN_TRAIN_ROWS = 50
+
+
+class BackendUnavailable(ValueError):
+    """The requested model backend cannot be used on this machine."""
+
+
+class ModelValidationError(ValueError):
+    """A freshly trained model failed the checks required before publishing it."""
+
+
+def resolve_backend(name: str | None = None) -> str:
+    """The backend to fit with: the argument, else GYMCAST_BACKEND, else LightGBM."""
+    name = name or os.environ.get("GYMCAST_BACKEND") or "lightgbm"
+    if name not in BACKENDS:
+        raise ValueError(f"unknown backend {name!r}; choose one of {', '.join(BACKENDS)}")
+    if name == "lightgbm" and lgb is None:
+        raise BackendUnavailable(
+            f"LightGBM could not be loaded ({LGB_IMPORT_ERROR}). On macOS install the "
+            "OpenMP runtime with `brew install libomp`, or train with the alternative "
+            "backend explicitly: --backend sklearn (or GYMCAST_BACKEND=sklearn)."
+        )
+    return name
 
 
 def model_columns(df: pd.DataFrame) -> list[str]:
@@ -107,8 +141,10 @@ def design_matrix(df: pd.DataFrame, feature_cols, levels, used_lgb: bool) -> pd.
     return X
 
 
-def fit_model(train_df: pd.DataFrame, feature_cols=None, params=None) -> dict:
+def fit_model(train_df: pd.DataFrame, feature_cols=None, params=None,
+              backend: str | None = None) -> dict:
     """Fit on already-split rows and return a self-describing bundle."""
+    backend = resolve_backend(backend)
     train_df = train_df.dropna(subset=[TARGET_COL])
     if train_df.empty:
         raise ValueError("no training rows with an observed count")
@@ -129,10 +165,11 @@ def fit_model(train_df: pd.DataFrame, feature_cols=None, params=None) -> dict:
     params = {**DEFAULT_PARAMS, **(params or {})}
     levels = fit_category_levels(train_df)
 
-    X = design_matrix(train_df, feature_cols, levels, HAS_LGB)
+    used_lgb = backend == "lightgbm"
+    X = design_matrix(train_df, feature_cols, levels, used_lgb)
     y = train_df[TARGET_COL]
 
-    if HAS_LGB:
+    if used_lgb:
         model = lgb.LGBMRegressor(verbose=-1, **params)
         model.fit(X, y, categorical_feature=[c for c in levels if c in feature_cols])
     else:
@@ -147,7 +184,8 @@ def fit_model(train_df: pd.DataFrame, feature_cols=None, params=None) -> dict:
         "model": model,
         "feature_cols": feature_cols,
         "category_levels": levels,
-        "used_lgb": HAS_LGB,
+        "backend": backend,
+        "used_lgb": used_lgb,
         "horizons": sorted(train_df["horizon"].unique().tolist()),
         "trained_through": train_df["hour_bucket"].max(),
         "n_train_rows": len(train_df),
@@ -166,14 +204,55 @@ def save_bundle(bundle: dict, path: str) -> None:
     atomic_write_bytes(path, pickle.dumps(bundle))
 
 
+def previous_model_path(path: str) -> str:
+    root, ext = os.path.splitext(path)
+    return f"{root}.previous{ext}"
+
+
+def validate_bundle(bundle: dict, restored: dict, frame: pd.DataFrame) -> None:
+    """
+    Refuse to publish a model that cannot serve forecasts.
+
+    `restored` is the bundle after a pickle round trip - exactly what predict.py
+    will load. Both must score the most recent week of training rows with
+    finite, identical predictions. This catches broken fits and serialization
+    problems; it is not an accuracy check, which needs evaluate.py's folds.
+    """
+    recent = frame[frame["hour_bucket"] > frame["hour_bucket"].max() - pd.Timedelta(days=7)]
+    expected = predict_with(bundle, recent)
+    if len(expected) != len(recent) or not np.isfinite(expected).all():
+        raise ModelValidationError("the new model produced missing or non-finite predictions")
+    if not np.array_equal(predict_with(restored, recent), expected):
+        raise ModelValidationError("the saved model does not reproduce the trained model's output")
+
+
+def publish_bundle(bundle: dict, frame: pd.DataFrame, path: str) -> None:
+    """Validate, keep the replaced model as <name>.previous, then swap in the new one."""
+    data = pickle.dumps(bundle)
+    validate_bundle(bundle, pickle.loads(data), frame)
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            atomic_write_bytes(previous_model_path(path), f.read())
+    atomic_write_bytes(path, data)
+
+
 def load_bundle(path: str) -> dict:
     with open(path, "rb") as f:
-        bundle = pickle.load(f)
+        try:
+            bundle = pickle.load(f)
+        except (ImportError, OSError) as exc:
+            # A LightGBM bundle cannot unpickle where LightGBM cannot load.
+            raise ValueError(
+                f"{path} needs a library that cannot be loaded here ({exc}). Install it, "
+                "or retrain with the alternative backend: train.py --backend sklearn."
+            ) from None
     if "category_levels" not in bundle:
         raise ValueError(
             f"{path} was saved by an older train.py that did not pin category levels. "
             "Re-run train.py to regenerate it."
         )
+    # Bundles saved before backends were explicit record only the flag.
+    bundle.setdefault("backend", "lightgbm" if bundle["used_lgb"] else "sklearn")
     return bundle
 
 
@@ -229,7 +308,8 @@ def training_provenance(input_path: str, frame: pd.DataFrame) -> dict:
     }
 
 
-def train_model(input_path: str, model_out: str, horizons=DEFAULT_HORIZONS) -> dict:
+def train_model(input_path: str, model_out: str, horizons=DEFAULT_HORIZONS,
+                backend: str | None = None) -> dict:
     frame = load_supervised(input_path, horizons)
     labelled = frame.dropna(subset=[TARGET_COL])
 
@@ -246,29 +326,49 @@ def train_model(input_path: str, model_out: str, horizons=DEFAULT_HORIZONS) -> d
             "to build folds. Treat any model from this as a smoke test."
         )
 
-    bundle = fit_model(labelled)
+    bundle = fit_model(labelled, backend=backend)
     bundle["provenance"] = training_provenance(input_path, labelled)
-    save_bundle(bundle, model_out)
+    publish_bundle(bundle, labelled, model_out)
 
     print(f"Trained on {bundle['n_train_rows']} (origin, horizon) rows "
           f"through {bundle['trained_through']}")
     print(f"Horizons: {min(bundle['horizons'])}-{max(bundle['horizons'])}h  |  "
-          f"backend: {'lightgbm' if bundle['used_lgb'] else 'sklearn'}")
+          f"backend: {bundle['backend']}")
     print(f"Saved model to {model_out}")
     print("Run evaluate.py for walk-forward accuracy against the baselines.")
     return bundle
 
 
-if __name__ == "__main__":
+def kept_model_note(model_out: str) -> str:
+    if os.path.exists(model_out):
+        return f"The previous model at {model_out} was left unchanged."
+    return "No model was written."
+
+
+def main(argv=None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", default=str(paths.FEATURES))
     parser.add_argument("--model-out", default=str(paths.MODEL))
     parser.add_argument("--max-horizon", type=int, default=max(DEFAULT_HORIZONS),
                         help="train for forecasts 1..N hours ahead")
-    args = parser.parse_args()
+    parser.add_argument("--backend", choices=BACKENDS, default=None,
+                        help="model backend (default: $GYMCAST_BACKEND, else lightgbm)")
+    args = parser.parse_args(argv)
 
     try:
-        train_model(args.input, args.model_out, horizons=range(1, args.max_horizon + 1))
+        train_model(args.input, args.model_out, horizons=range(1, args.max_horizon + 1),
+                    backend=args.backend)
     except ValueError as exc:
-        # Not enough history is the expected state early on, not a crash.
-        sys.exit(f"train.py: {exc}")
+        # Expected conditions (thin history, unavailable backend, failed validation)
+        # get a message instead of a traceback, and a non-zero exit for systemd.
+        sys.exit(f"train.py: {exc}\n{kept_model_note(args.model_out)}")
+    except Exception:
+        # Anything else is a bug or a backend failure: say what was kept, then
+        # re-raise so the traceback reaches the journal and the unit is marked failed.
+        print(f"train.py: training failed unexpectedly. {kept_model_note(args.model_out)}",
+              file=sys.stderr)
+        raise
+
+
+if __name__ == "__main__":
+    main()

@@ -75,10 +75,14 @@ serving from assigning different meanings to a feature.
 
 ## Model and representation
 
-One direct multi-horizon regressor uses `horizon` as an input. LightGBM is
-preferred; `ImportError` or `OSError` selects scikit-learn's
-`HistGradientBoostingRegressor`, which accepts missing numeric lag values.
-These are alternative backends, not an ensemble or automatic model comparison.
+One direct multi-horizon regressor uses `horizon` as an input. The backend is
+explicit: LightGBM by default, or scikit-learn's `HistGradientBoostingRegressor`
+(which accepts missing numeric lag values) via `--backend sklearn` or
+`GYMCAST_BACKEND`. An unavailable backend is an error, never a silent
+substitution. These are alternatives, not an ensemble or automatic comparison.
+`train.py` publishes through `publish_bundle()`: the pickled bundle is reloaded
+and must reproduce finite predictions on the latest week before it replaces
+`model.pkl`, and the replaced model is kept as `model.previous.pkl`.
 
 `fit_model()` requires at least 50 rows with observed origins. This is an
 eligibility check, not a filter removing every missing-origin row. Training

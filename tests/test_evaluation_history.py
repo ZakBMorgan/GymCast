@@ -59,7 +59,8 @@ class EvaluationHistoryTests(unittest.TestCase):
         row = {"location_name": "Marino", "horizon_hours": 6, "predicted_count": 12.,
                "actual_count": 10., "target_time": cutoff.isoformat()}
 
-        def score_fold(train, test, rows):
+        def score_fold(train, test, rows, backend):
+            self.assertEqual(backend, "lightgbm", "run() resolves the backend once")
             rows.append(row)
             return fold
 
