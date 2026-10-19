@@ -481,6 +481,13 @@ async function run() {
     "now and best time lead; chart, table and accuracy follow");
   assert.match(html, /<details id="detail-toggle">/, "hour-by-hour table is collapsed by default");
   assert.match(html, /not affiliated with Northeastern University/);
+  // Search keywords students actually use; a wording edit once dropped them from the title.
+  const title = html.match(/<title>([^<]+)<\/title>/)[1];
+  for (const word of ["Marino", "Northeastern", "Occupancy"]) assert.match(title, new RegExp(word));
+  assert.match(html, /<link rel="canonical" href="https:\/\/gymcast\.zakbmorgan\.dev\/">/);
+  assert.match(html, /<meta property="og:image" content="https:\/\/gymcast\.zakbmorgan\.dev\/og-image\.png">/);
+  assert(fs.existsSync(path.join(__dirname, "../web/og-image.png")), "og:image must be deployed with web/");
+  JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
   for (const id of IDS) assert(html.includes(`id="${id}"`), `index.html is missing #${id}`);
 
   for (const [hostname, expectedBase] of [
