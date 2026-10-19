@@ -403,6 +403,8 @@ if (typeof ResizeObserver !== "undefined") {
 
 function renderForecastChart(predictions, now) {
   const container = document.getElementById("forecast-chart");
+  // The 30-second timer re-renders the chart; keep a mobile reader's scroll position.
+  const scrollLeft = container.scrollLeft;
   container.replaceChildren();
   const points = predictions
     .filter((p) => Number.isFinite(Date.parse(p.time)))
@@ -499,6 +501,7 @@ function renderForecastChart(predictions, now) {
     })));
   }
   container.appendChild(svg);
+  container.scrollLeft = scrollLeft;
   updateForecastScrollHint();
 }
 

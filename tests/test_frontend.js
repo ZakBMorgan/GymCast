@@ -23,7 +23,8 @@ function element(tag) {
       if (this.tag === "select" && this.children.length === 1) this.value = child.value;
     },
     append(...children) { children.forEach((child) => this.appendChild(child)); },
-    replaceChildren() { text = ""; this.children = []; },
+    // Browsers clamp scrollLeft to 0 once the scrolled content is removed.
+    replaceChildren() { text = ""; this.children = []; this.scrollLeft = 0; },
     querySelector(tag) { return this.children.find((child) => child.tag === tag) ?? null; },
     focus() { element.active = this; },
     contains(target) { return this === target || this.children.some((child) => child.contains(target)); },
@@ -217,8 +218,10 @@ async function main(hostname, expectedBase) {
   assert(forecastRows().every((row) => !row.classList.has("quiet-hour")));
   assert.match(ids["quiet-hours-summary"].textContent, /No other quiet hours/);
   assert.equal(ids["current-availability"].hidden, true);
+  ids["forecast-chart"].scrollLeft = 240;
   interval();
   assert.equal(forecastRows().length, 2, "timer respects selected location");
+  assert.equal(ids["forecast-chart"].scrollLeft, 240, "timer re-render keeps the chart scroll position");
   ids["show-closed-hours"].checked = false;
   ids["show-closed-hours"].onchange();
   assert.equal(forecastRows().length, 1, "toggle works for the selected location");
