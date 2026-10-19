@@ -5,7 +5,7 @@ const API_BASE = ["localhost", "127.0.0.1"].includes(window.location.hostname)
   ? "http://127.0.0.1:5000" : "";
 
 const EXPIRED_FORECAST =
-  "Forecast is out of date. Refresh prediction data to see upcoming hours.";
+  "Forecasts have not updated recently, so upcoming hours are unavailable. Check back soon.";
 
 const statusElement = document.getElementById("status");
 
@@ -190,96 +190,50 @@ function locationHeading(locationName) {
     name: match[2] } : { facility: "Your location", name: locationName };
 }
 
+const HOUR_MS = 3600000;
+const TIMEZONE = "America/New_York";
+
+// Crowd levels use percent of the location's own capacity, so a studio that
+// never fills reads Quiet all day instead of being graded against the gym floor.
+const LEVELS = [
+  { key: "quiet", label: "Quiet", below: 35 },
+  { key: "moderate", label: "Moderate", below: 65 },
+  { key: "busy", label: "Busy", below: Infinity },
+];
+
+function busyLevel(percent) {
+  if (!Number.isFinite(percent)) return null;
+  return LEVELS.find((level) => percent < level.below);
+}
+
 function renderLocation(data, locationName, now = Date.now()) {
   // Preserve history scroll position during the current-forecast clock updates.
   if (document.getElementById("history-location").textContent !== locationName) {
     renderEvaluationHistory(locationName);
   }
   const predictions = data.locations[locationName];
-  const tableBody = document.getElementById("forecast-rows");
 
   const heading = locationHeading(locationName);
   document.getElementById("location-facility").textContent = heading.facility;
   document.getElementById("forecast-heading").textContent = heading.name;
-
-  const origin = data.forecast_origin?.[locationName];
-
-  document.getElementById("forecast-origin").textContent = formatTimestamp(origin);
-
-  document.getElementById("generated-at").textContent =
-    formatTimestamp(data.generated_at);
-
-  tableBody.replaceChildren();
+  document.getElementById("forecast-origin").textContent =
+    formatTimestamp(data.forecast_origin?.[locationName]);
+  document.getElementById("generated-at").textContent = formatTimestamp(data.generated_at);
 
   renderCurrentStatus(data.current_availability?.[locationName]);
-
-  const candidates = predictions
-    .filter((prediction) => isQuietHourCandidate(prediction, now))
-    .sort((a, b) => a.predicted_count - b.predicted_count
-      || Date.parse(a.time) - Date.parse(b.time));
-  const counts = candidates.map((prediction) => prediction.predicted_count);
   renderForecastFreshness(data, predictions, now);
-  renderBestTimes(candidates, predictions, now);
-  renderForecastOverview(predictions, now, candidates[0]);
-  renderForecastChart(predictions, now);
 
-  const lowestCount = counts.length > 0 ? Math.min(...counts) : null;
+  const windows = quietWindows(predictions, now, windowTolerance(locationName, predictions));
+  const best = windows[0] ?? null;
+  renderBestTimes(windows, predictions, now);
+  renderNextHour(predictions, now, best);
+  renderForecastChart(predictions, now, best);
+  renderForecastTable(predictions, now, best);
+}
 
-  const showClosed = document.getElementById("show-closed-hours").checked;
-  const visible = predictions.filter((prediction) =>
-    showClosed || forecastStatus(prediction, now).status !== "closed");
-  const empty = document.getElementById("forecast-empty");
-  empty.hidden = visible.length > 0;
-  empty.textContent = predictions.length
-    ? "All forecast hours are closed. Select Show closed hours to view them."
-    : "No forecast hours available for this location.";
-  let previousDay = null;
-
-  for (const prediction of visible) {
-    const date = new Date(prediction.time);
-    const day = date.toLocaleDateString([], {
-      timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric", year: "numeric",
-    });
-    if (day !== previousDay) {
-      const divider = document.createElement("tr");
-      divider.classList.add("day-divider");
-      const heading = document.createElement("th");
-      heading.colSpan = 4;
-      heading.textContent = day;
-      divider.appendChild(heading);
-      tableBody.appendChild(divider);
-      previousDay = day;
-    }
-    const row = document.createElement("tr");
-
-    if (isQuietHourCandidate(prediction, now) && prediction.predicted_count === lowestCount) {
-      row.classList.add("quiet-hour");
-    }
-
-    const values = [
-      new Date(prediction.time).toLocaleString([], {
-        timeZone: "America/New_York",
-        hour: "numeric",
-        minute: "2-digit",
-      }),
-      formatCount(prediction.predicted_count),
-    ];
-
-    for (const value of values) {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      row.appendChild(cell);
-    }
-
-    row.appendChild(createCapacityCell(prediction.predicted_percent));
-    const availability = forecastStatus(prediction, now);
-    const statusCell = document.createElement("td");
-    statusCell.textContent = availability.label;
-    statusCell.classList.add("availability-label");
-    row.classList.add(`availability-${availability.status}`);
-    row.appendChild(statusCell);
-    tableBody.appendChild(row);
-  }
+function renderSelectedLocation() {
+  const location = document.getElementById("location-select").value;
+  if (loadedData?.locations?.[location]) renderLocation(loadedData, location);
 }
 
 function isUpcoming(prediction, now) {
@@ -293,8 +247,9 @@ function forecastExpired(predictions, now) {
 
 function renderForecastFreshness(data, predictions, now) {
   const element = document.getElementById("forecast-freshness");
-  element.setAttribute("data-expired", String(forecastExpired(predictions, now)));
-  if (forecastExpired(predictions, now)) {
+  const expired = forecastExpired(predictions, now);
+  element.setAttribute("data-expired", String(expired));
+  if (expired) {
     element.textContent = EXPIRED_FORECAST;
     return;
   }
@@ -305,204 +260,456 @@ function renderForecastFreshness(data, predictions, now) {
   const generated = Date.parse(data.generated_at?.replace(" ", "T"));
   const ageMinutes = Math.floor((now - generated) / 60000);
   element.textContent = Number.isFinite(ageMinutes) && ageMinutes >= 0
-    ? `Generated ${ageMinutes < 60 ? `${ageMinutes} min` : `${Math.floor(ageMinutes / 60)} hr`} ago`
-    : "Generation time unavailable or ahead of the browser clock.";
+    ? `Updated ${ageMinutes < 60 ? `${ageMinutes} min` : `${Math.floor(ageMinutes / 60)} hr`} ago`
+    : "Update time unavailable";
 }
 
-function renderBestTimes(candidates, predictions, now) {
-  const best = candidates[0];
-  const hasPercent = Number.isFinite(best?.predicted_percent);
-  document.getElementById("recommended-time").textContent = best
-    ? formatTimestamp(best.time)
-    : forecastExpired(predictions, now) ? EXPIRED_FORECAST
-      : "No upcoming fully open hours with an occupancy estimate are available.";
-  document.getElementById("recommended-values").hidden = !best;
-  document.getElementById("recommended-explanation").hidden = !best;
-  document.getElementById("recommended-count").textContent = formatCount(best?.predicted_count);
-  document.getElementById("recommended-percent").textContent = formatPercent(best?.predicted_percent);
-  document.getElementById("recommended-capacity-track").hidden = !hasPercent;
-  document.getElementById("recommended-capacity-fill").style.width =
-    `${hasPercent ? Math.max(0, Math.min(100, best.predicted_percent)) : 0}%`;
-  document.getElementById("recommended-percent-note").textContent = best && !hasPercent
-    ? "Capacity estimate unavailable" : "";
+// ---------------------------------------------------------------- quiet windows
 
-  const summary = document.getElementById("quiet-hours-summary");
-  summary.replaceChildren();
-  if (candidates.length < 2) {
-    const empty = document.createElement("li");
-    empty.classList.add("empty-state");
-    empty.textContent = forecastExpired(predictions, now) ? EXPIRED_FORECAST
-      : best ? "No other fully open upcoming hours to compare."
-        : "No other quiet hours are available in this forecast.";
-    summary.appendChild(empty);
-    return;
+/*
+ * How close to the quietest hour still counts as "just as quiet"?
+ *
+ * The model's average error for this location (from the walk-forward history)
+ * is the honest answer: two hours whose forecasts differ by less than that are
+ * not distinguishable, so presenting one as "the" quietest hour overstates what
+ * the forecast knows. Without history, fall back to 5% of capacity (min 2 people).
+ */
+function windowTolerance(locationName, predictions) {
+  const mae = locationMae(locationName);
+  if (Number.isFinite(mae)) return { people: Math.max(1, Math.round(mae)), source: "error" };
+  const capacity = predictions.map((p) => p.predicted_count / (p.predicted_percent / 100))
+    .find((value) => Number.isFinite(value) && value > 0);
+  return { people: Math.max(2, Math.round((capacity ?? 0) * 0.05)), source: "fallback" };
+}
+
+/*
+ * Group eligible hours into windows, quietest first.
+ *
+ * Seed with the lowest remaining hour (earliest on ties), then grow the window
+ * through directly adjacent eligible hours whose forecast stays within the
+ * tolerance of that seed. Seeds that would touch an existing window are skipped,
+ * so one stretch is never shown as two.
+ */
+function quietWindows(predictions, now, tolerance, limit = 3) {
+  const hours = predictions
+    .filter((prediction) => isQuietHourCandidate(prediction, now))
+    .map((prediction) => ({ prediction, start: Date.parse(prediction.time) }))
+    .sort((a, b) => a.start - b.start);
+  const order = hours.map((_, index) => index).sort((a, b) =>
+    hours[a].prediction.predicted_count - hours[b].prediction.predicted_count
+    || hours[a].start - hours[b].start);
+  const used = new Set();
+  const adjacent = (i, j) => j >= 0 && j < hours.length && hours[j].start - hours[i].start === (j - i) * HOUR_MS;
+  const windows = [];
+
+  for (const seed of order) {
+    if (windows.length >= limit) break;
+    if (used.has(seed)) continue;
+    const ceiling = hours[seed].prediction.predicted_count + tolerance.people;
+    const joins = (from, to) => adjacent(from, to) && !used.has(to)
+      && hours[to].prediction.predicted_count <= ceiling;
+    let first = seed;
+    let last = seed;
+    while (joins(first, first - 1)) first -= 1;
+    while (joins(last, last + 1)) last += 1;
+    const touches = (adjacent(first, first - 1) && used.has(first - 1))
+      || (adjacent(last, last + 1) && used.has(last + 1));
+    if (touches) continue;
+    const members = hours.slice(first, last + 1);
+    members.forEach((_, offset) => used.add(first + offset));
+    const counts = members.map((member) => member.prediction.predicted_count);
+    const percents = members.map((member) => member.prediction.predicted_percent);
+    windows.push({
+      start: members[0].start,
+      end: members[members.length - 1].start + HOUR_MS,
+      hours: members.map((member) => member.prediction),
+      minCount: Math.min(...counts),
+      maxCount: Math.max(...counts),
+      // Both ends of the range are shown, so a window is never labelled more optimistically
+      // than its busiest hour.
+      levels: percents.every(Number.isFinite)
+        ? { low: busyLevel(Math.min(...percents)), high: busyLevel(Math.max(...percents)) } : null,
+      tolerance,
+    });
   }
-  // The first ranked hour is featured above; retain the next two eligible alternatives.
-  for (const prediction of candidates.slice(1, 3)) {
+  // An alternative must meet the same test as hours inside a window: starting within
+  // the tolerance of the quietest hour. Anything looser would advertise a merely
+  // less-busy stretch as "also quiet".
+  const best = windows[0];
+  return windows.filter((window) =>
+    window === best || window.minCount <= best.minCount + tolerance.people);
+}
+
+function windowLevelText(levels) {
+  if (!levels) return null;
+  return levels.low === levels.high ? levels.low.label
+    : `${levels.low.label} to ${levels.high.label.toLowerCase()}`;
+}
+
+function inWindow(window, prediction) {
+  const start = Date.parse(prediction.time);
+  return Boolean(window) && start >= window.start && start < window.end;
+}
+
+// --------------------------------------------------------------- time labels
+
+function nyParts(stamp) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "numeric", minute: "2-digit", hour12: true, weekday: "short",
+  }).formatToParts(new Date(stamp));
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    hour: get("hour"), minute: get("minute"), period: get("dayPeriod"), weekday: get("weekday"),
+  };
+}
+
+function dayLabel(stamp, now) {
+  const day = nyParts(stamp).date;
+  if (day === nyParts(now).date) return "Today";
+  if (day === nyParts(now + 24 * HOUR_MS).date) return "Tomorrow";
+  return new Date(stamp).toLocaleDateString("en-US", {
+    timeZone: TIMEZONE, weekday: "long", month: "short", day: "numeric",
+  });
+}
+
+function clockLabel(parts) {
+  return parts.minute === "00" ? parts.hour : `${parts.hour}:${parts.minute}`;
+}
+
+// "Today, 6–10 AM" or "Tomorrow, 10 PM–1 AM"; minutes appear only if not on the hour.
+function formatWindow(start, end, now) {
+  const from = nyParts(start);
+  const to = nyParts(end);
+  const range = from.period === to.period
+    ? `${clockLabel(from)}–${clockLabel(to)} ${to.period}`
+    : `${clockLabel(from)} ${from.period}–${clockLabel(to)} ${to.period}`;
+  return `${dayLabel(start, now)}, ${range}`;
+}
+
+function peopleText(count) {
+  const rounded = Math.round(count);
+  return `${rounded} ${rounded === 1 ? "person" : "people"}`;
+}
+
+function peopleRange(min, max) {
+  const low = Math.round(min);
+  const high = Math.round(max);
+  return low === high ? `about ${peopleText(low)}` : `about ${low}–${high} people`;
+}
+
+// ----------------------------------------------------------------- summaries
+
+function setLevelChip(element, level, fallbackText = null, text = null) {
+  element.className = "level-chip";
+  element.hidden = !level && !fallbackText;
+  if (level) {
+    element.classList.add(`level-${level.key}`);
+    element.textContent = text ?? level.label;
+  } else if (fallbackText) {
+    element.classList.add("level-closed");
+    element.textContent = fallbackText;
+  }
+}
+
+function renderBestTimes(windows, predictions, now) {
+  const best = windows[0];
+  const time = document.getElementById("best-window");
+  const people = document.getElementById("best-people");
+  const explanation = document.getElementById("best-explanation");
+  time.textContent = best ? formatWindow(best.start, best.end, now)
+    : forecastExpired(predictions, now) ? EXPIRED_FORECAST
+      : "No upcoming fully open hours with a forecast.";
+  setLevelChip(document.getElementById("best-level"), best?.levels?.low ?? null, null,
+    windowLevelText(best?.levels ?? null));
+  people.hidden = !best;
+  explanation.hidden = !best;
+  if (best) {
+    people.textContent = peopleRange(best.minCount, best.maxCount);
+    explanation.textContent = best.hours.length === 1
+      ? "The quietest fully open hour in this forecast."
+      : best.tolerance.source === "error"
+        ? `Each of these hours is forecast within ${peopleText(best.tolerance.people)} of the quietest one. That is about the forecast's typical error here, so they are about equally quiet.`
+        : `Each of these hours is forecast within ${peopleText(best.tolerance.people)} of the quietest one, so they are about equally quiet.`;
+  }
+
+  const list = document.getElementById("also-quiet-list");
+  list.replaceChildren();
+  for (const window of windows.slice(1)) {
     const item = document.createElement("li");
-    const time = document.createElement("strong");
-    time.textContent = formatTimestamp(prediction.time);
-    const count = document.createElement("span");
-    count.textContent = `${formatCount(prediction.predicted_count)} people expected`;
-    const percent = document.createElement("span");
-    percent.textContent = Number.isFinite(prediction.predicted_percent)
-      ? `${formatPercent(prediction.predicted_percent)} capacity used`
-      : "Capacity estimate unavailable";
-    item.append(time, count, percent);
-    summary.appendChild(item);
+    const when = document.createElement("strong");
+    when.textContent = formatWindow(window.start, window.end, now);
+    const range = document.createElement("span");
+    range.textContent = peopleRange(window.minCount, window.maxCount);
+    item.append(when, range);
+    list.appendChild(item);
   }
+  document.getElementById("also-quiet").hidden = windows.length < 2;
 }
 
-function renderForecastOverview(predictions, now, quietest = null) {
-  // Select a copy so summary ordering never changes the chart/table data.
-  const next = predictions
-    .filter((prediction) => isUpcoming(prediction, now) && prediction.facility_status === "open")
-    .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))[0];
-  const sameHour = Boolean(next && quietest && Date.parse(next.time) === Date.parse(quietest.time));
-  document.getElementById("next-values").hidden = !next || sameHour;
-  document.getElementById("next-recommendation-note").hidden = !sameHour;
-  document.getElementById("next-recommendation-note").textContent = sameHour
-    ? "Also the quietest hour recommended above." : "";
-  document.getElementById("next-count").textContent = formatCount(next?.predicted_count);
-  document.getElementById("next-percent").textContent = formatPercent(next?.predicted_percent);
-  const percent = next?.predicted_percent;
-  const hasPercent = Number.isFinite(percent);
-  document.getElementById("next-capacity-track").hidden = !hasPercent;
-  document.getElementById("next-capacity-fill").style.width =
-    `${hasPercent ? Math.max(0, Math.min(100, percent)) : 0}%`;
-  document.getElementById("next-percent-note").textContent = next && !hasPercent
-    ? "Capacity estimate unavailable" : "";
-  document.getElementById("next-time").textContent = next
-    ? formatTimestamp(next.time)
-    : forecastExpired(predictions, now) ? EXPIRED_FORECAST
-      : "No fully open upcoming hours in this forecast";
-  document.getElementById("next-availability").textContent = next
-    ? forecastStatus(next, now).label : "—";
+function coveringHour(predictions, now) {
+  return predictions.find((prediction) => {
+    const start = Date.parse(prediction.time);
+    return start <= now && now < start + HOUR_MS;
+  });
 }
 
-function svgElement(tag, attributes, text) {
-  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
-  if (text !== undefined) element.textContent = text;
-  return element;
+function hourSummary(prediction, now) {
+  const status = forecastStatus(prediction, now);
+  if (status.status === "closed") return { key: "closed", text: "Closed" };
+  const level = busyLevel(prediction.predicted_percent);
+  const people = Number.isFinite(prediction.predicted_count)
+    ? peopleRange(prediction.predicted_count, prediction.predicted_count) : "no estimate";
+  return { key: level?.key ?? "unknown", text: level ? `${level.label} · ${people}` : people };
 }
 
-function updateForecastScrollHint() {
-  const chart = document.getElementById("forecast-chart");
-  document.getElementById("forecast-scroll-hint").hidden = !(
-    window.innerWidth <= 540 && chart.querySelector("svg")
-    && chart.clientWidth > 0 && chart.scrollWidth > chart.clientWidth + 1
-  );
-}
+// The model also forecasts the hour in progress; that is the "right now" answer.
+// Before it exists (or once it has passed) the card falls back to the next hour.
+function renderNextHour(predictions, now, best) {
+  const ordered = predictions
+    .filter((prediction) => Number.isFinite(Date.parse(prediction.time)))
+    .sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+  const current = coveringHour(ordered, now);
+  const upcoming = ordered.filter((prediction) => isUpcoming(prediction, now));
+  const next = current ?? upcoming[0];
+  document.getElementById("next-heading").textContent = current ? "Right now" : "Next hour";
+  const time = document.getElementById("next-time");
+  const people = document.getElementById("next-people");
+  const meter = document.getElementById("next-meter");
+  const fill = document.getElementById("next-meter-fill");
+  const note = document.getElementById("next-note");
+  note.textContent = "";
+  meter.hidden = true;
+  people.hidden = true;
 
-window.addEventListener("resize", updateForecastScrollHint);
-// Observe container changes as well as viewport resizes (including embedded layouts).
-if (typeof ResizeObserver !== "undefined") {
-  new ResizeObserver(updateForecastScrollHint).observe(document.getElementById("forecast-chart"));
-}
+  const later = upcoming.filter((prediction) => prediction !== next).slice(0, 3);
+  const list = document.getElementById("coming-up-list");
+  list.replaceChildren();
+  for (const prediction of later) {
+    const summary = hourSummary(prediction, now);
+    const item = document.createElement("li");
+    const when = document.createElement("strong");
+    when.textContent = formatClock(prediction.time);
+    const detail = document.createElement("span");
+    const dot = document.createElement("i");
+    dot.classList.add("dot", `level-${summary.key}`);
+    dot.setAttribute("aria-hidden", "true");
+    detail.append(dot, summary.text);
+    item.append(when, detail);
+    list.appendChild(item);
+  }
+  document.getElementById("coming-up").hidden = later.length === 0;
 
-function renderForecastChart(predictions, now) {
-  const container = document.getElementById("forecast-chart");
-  // The 30-second timer re-renders the chart; keep a mobile reader's scroll position.
-  const scrollLeft = container.scrollLeft;
-  container.replaceChildren();
-  const points = predictions
-    .filter((p) => Number.isFinite(Date.parse(p.time)))
-    .slice().sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
-  const counts = points.map((p) => p.predicted_count).filter(Number.isFinite);
-  if (!counts.length) {
-    const empty = document.createElement("p");
-    empty.classList.add("empty-state");
-    empty.textContent = "No occupancy forecast available to chart.";
-    container.appendChild(empty);
-    updateForecastScrollHint();
+  if (!next) {
+    time.textContent = forecastExpired(predictions, now) ? EXPIRED_FORECAST
+      : "No upcoming hours in this forecast.";
+    setLevelChip(document.getElementById("next-level"), null);
+    return;
+  }
+  const start = Date.parse(next.time);
+  time.textContent = formatWindow(start, start + HOUR_MS, now);
+  const status = forecastStatus(next, now);
+
+  if (status.status === "closed") {
+    setLevelChip(document.getElementById("next-level"), null, "Closed");
+    const opens = upcoming.find((p) => forecastStatus(p, now).status !== "closed");
+    note.textContent = opens
+      ? `Opens ${dayLabel(Date.parse(opens.time), now).toLowerCase()} at ${formatClock(opens.time)}.`
+      : "No opening in this forecast.";
     return;
   }
 
-  // Fixed SVG coordinates scale with the container. X positions use elapsed time,
-  // not row numbers, so missing hours remain gaps on the timeline.
-  const width = 900;
-  const left = 42;
-  const right = 874;
-  const top = 18;
-  const bottom = 190;
-  const start = Date.parse(points[0].time);
-  const end = Date.parse(points[points.length - 1].time);
-  const duration = end - start + 3600000;
-  const ceiling = Math.max(20, Math.ceil(Math.max(...counts) / 20) * 20);
-  const x = (stamp) => left + (stamp - start) / duration * (right - left);
-  const y = (count) => bottom - count / ceiling * (bottom - top);
-  const svg = svgElement("svg", {
-    viewBox: `0 0 ${width} 240`, role: "img",
-    "aria-label": "Predicted occupancy across all forecast hours, including closed hours. Exact values and availability are in the table below.",
+  const level = busyLevel(next.predicted_percent);
+  setLevelChip(document.getElementById("next-level"), level,
+    level ? null : status.status === "unknown" ? "Hours unknown" : null);
+  people.hidden = !Number.isFinite(next.predicted_count);
+  people.textContent = Number.isFinite(next.predicted_percent)
+    ? `${peopleRange(next.predicted_count, next.predicted_count)} · ${formatPercent(next.predicted_percent)} full`
+    : peopleRange(next.predicted_count, next.predicted_count);
+  if (level) {
+    meter.hidden = false;
+    fill.className = `meter-fill level-${level.key}`;
+    fill.style.width = `${Math.max(0, Math.min(100, next.predicted_percent))}%`;
+  }
+  const notes = [];
+  if (status.status !== "open") notes.push(status.label);
+  if (!Number.isFinite(next.predicted_percent)) notes.push("Capacity estimate unavailable");
+  if (inWindow(best, next)) notes.push("Part of the quietest stretch ahead.");
+  note.textContent = notes.join(" · ");
+}
+
+// -------------------------------------------------------------- 24-hour chart
+
+let selectedBarTime = null;
+
+function barDescription(prediction, now) {
+  const status = forecastStatus(prediction, now);
+  const when = `${dayLabel(Date.parse(prediction.time), now)} ${formatClock(prediction.time)}`;
+  if (status.status === "closed") return { when, detail: status.label };
+  const level = busyLevel(prediction.predicted_percent);
+  const parts = [peopleRange(prediction.predicted_count, prediction.predicted_count)];
+  if (Number.isFinite(prediction.predicted_percent)) {
+    parts.push(`${formatPercent(prediction.predicted_percent)} full`);
+  }
+  if (level) parts.push(level.label);
+  if (status.status !== "open") parts.push(status.label);
+  return { when, detail: parts.join(" · ") };
+}
+
+function renderForecastChart(predictions, now, best) {
+  const container = document.getElementById("forecast-chart");
+  const readout = document.getElementById("chart-readout");
+  container.replaceChildren();
+  // The current hour stays on the chart until it ends; earlier hours drop off.
+  const points = predictions
+    .filter((p) => Number.isFinite(Date.parse(p.time)) && Date.parse(p.time) + HOUR_MS > now)
+    .sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
+  if (!points.length) {
+    const empty = document.createElement("p");
+    empty.classList.add("chart-empty");
+    empty.textContent = forecastExpired(predictions, now) ? EXPIRED_FORECAST
+      : "No occupancy forecast available to chart.";
+    container.appendChild(empty);
+    readout.textContent = "";
+    return;
+  }
+
+  const counts = points.map((p) => p.predicted_count).filter(Number.isFinite);
+  const ceiling = Math.max(10, Math.ceil(Math.max(0, ...counts) / 10) * 10);
+  const bars = [];
+  let previousDay = null;
+
+  points.forEach((prediction, index) => {
+    const status = forecastStatus(prediction, now).status;
+    const level = busyLevel(prediction.predicted_percent);
+    const bar = document.createElement("button");
+    bar.type = "button";
+    bar.classList.add("bar", `status-${status}`);
+    if (level && status !== "closed") bar.classList.add(`level-${level.key}`);
+    const fill = document.createElement("span");
+    fill.classList.add("bar-fill");
+    // Closed hours show a short hatched stub rather than a count nobody can be part of.
+    const height = status === "closed" || !Number.isFinite(prediction.predicted_count) ? 6
+      : Math.max(2, prediction.predicted_count / ceiling * 100);
+    fill.style.height = `${height}%`;
+    bar.appendChild(fill);
+
+    const parts = nyParts(Date.parse(prediction.time));
+    if (Number(parts.hour) % 3 === 0 && parts.minute === "00") {
+      const label = document.createElement("span");
+      label.classList.add("bar-label");
+      label.setAttribute("aria-hidden", "true");
+      label.textContent = `${parts.hour}${parts.period === "AM" ? "a" : "p"}`;
+      bar.appendChild(label);
+    }
+    if (parts.date !== previousDay) {
+      if (previousDay !== null) bar.classList.add("day-start");
+      const day = document.createElement("span");
+      day.classList.add("bar-day");
+      day.setAttribute("aria-hidden", "true");
+      day.textContent = dayLabel(Date.parse(prediction.time), now);
+      bar.appendChild(day);
+      previousDay = parts.date;
+    }
+
+    const description = barDescription(prediction, now);
+    bar.setAttribute("aria-label", `${description.when}: ${description.detail}`);
+    bar.onclick = () => selectBar(index);
+    bar.onpointerenter = () => selectBar(index);
+    bar.onfocus = () => selectBar(index);
+    bar.onkeydown = (event) => {
+      const target = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: bars.length - 1 }[event.key];
+      if (target === undefined) return;
+      event.preventDefault();
+      bars[Math.max(0, Math.min(bars.length - 1, target))].focus();
+    };
+    bar.prediction = prediction;
+    bars.push(bar);
+    container.appendChild(bar);
   });
 
-  for (const p of points) {
-    const status = forecastStatus(p, now).status;
-    if (status !== "closed" && status !== "partial") continue;
-    const hourStart = Date.parse(p.time);
-    svg.appendChild(svgElement("rect", {
-      x: x(hourStart), y: top,
-      width: x(hourStart + 3600000) - x(hourStart),
-      height: bottom - top, class: `chart-${status}-band`,
-    }));
-  }
-  for (let tick = 0; tick <= 4; tick++) {
-    const count = ceiling * tick / 4;
-    svg.appendChild(svgElement("line", { x1: left, x2: right, y1: y(count), y2: y(count), class: "chart-grid" }));
-    svg.appendChild(svgElement("text", { x: left - 10, y: y(count) + 4, "text-anchor": "end", class: "chart-axis-label" }, String(count)));
+  const bestIndexes = points.map((p, i) => (inWindow(best, p) ? i : -1)).filter((i) => i >= 0);
+  if (bestIndexes.length) {
+    const bracket = document.createElement("div");
+    bracket.classList.add("best-bracket");
+    bracket.setAttribute("aria-hidden", "true");
+    bracket.style.left = `${bestIndexes[0] / points.length * 100}%`;
+    bracket.style.width = `${bestIndexes.length / points.length * 100}%`;
+    const label = document.createElement("span");
+    label.textContent = "Best time";
+    bracket.appendChild(label);
+    container.appendChild(bracket);
   }
 
-  let path = "";
-  let previousTime = null;
-  for (const p of points) {
-    if (!Number.isFinite(p.predicted_count)) {
-      previousTime = null;
-      continue;
-    }
-    const stamp = Date.parse(p.time);
-    const connected = previousTime !== null && stamp - previousTime <= 3600000;
-    path += `${connected ? "L" : "M"}${x(stamp)},${y(p.predicted_count)} `;
-    previousTime = stamp;
-  }
-  svg.appendChild(svgElement("path", { d: path.trim(), class: "chart-line" }));
-  for (const p of points) {
-    if (!Number.isFinite(p.predicted_count)) continue;
-    const dot = svgElement("circle", {
-      cx: x(Date.parse(p.time)), cy: y(p.predicted_count), r: 3,
-      class: "chart-point",
+  function selectBar(index) {
+    bars.forEach((bar, i) => {
+      bar.setAttribute("aria-pressed", String(i === index));
+      // Roving tab stop: one bar in the tab order, arrow keys move between them.
+      bar.tabIndex = i === index ? 0 : -1;
     });
-    dot.appendChild(svgElement("title", {},
-      `${formatTimestamp(p.time)}: ${formatCount(p.predicted_count)} people predicted ·${forecastStatus(p, now).label}`));
-    svg.appendChild(dot);
+    const prediction = bars[index].prediction;
+    selectedBarTime = prediction.time;
+    const description = barDescription(prediction, now);
+    readout.replaceChildren();
+    const when = document.createElement("strong");
+    when.textContent = description.when;
+    readout.append(when, ` · ${description.detail}`);
   }
 
-  if (now >= start && now <= start + duration) {
-    svg.appendChild(svgElement("line", {
-      x1: x(now), x2: x(now), y1: top, y2: bottom, class: "chart-now",
-    }));
-    svg.appendChild(svgElement("text", {
-      x: x(now), y: top - 6, "text-anchor": "middle", class: "chart-axis-label",
-    }, "Now"));
-  }
+  // Keep the reader's selection across the 30-second re-render.
+  const kept = points.findIndex((p) => p.time === selectedBarTime);
+  selectBar(kept >= 0 ? kept : 0);
+}
 
-  const ticks = [...new Set([0, Math.round((points.length - 1) / 3),
-    Math.round(2 * (points.length - 1) / 3), points.length - 1])];
-  for (const index of ticks) {
-    const p = points[index];
-    const date = new Date(p.time);
-    const anchor = index === 0 ? "start" : index === points.length - 1 ? "end" : "middle";
-    const attrs = { x: x(Date.parse(p.time)), "text-anchor": anchor, class: "chart-axis-label" };
-    svg.appendChild(svgElement("text", { ...attrs, y: bottom + 22 }, date.toLocaleTimeString([], {
-      timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
-    })));
-    svg.appendChild(svgElement("text", { ...attrs, y: bottom + 39 }, date.toLocaleDateString([], {
-      timeZone: "America/New_York", month: "short", day: "numeric",
-    })));
+// ------------------------------------------------------------- detail table
+
+function renderForecastTable(predictions, now, best) {
+  const tableBody = document.getElementById("forecast-rows");
+  tableBody.replaceChildren();
+  const showClosed = document.getElementById("show-closed-hours").checked;
+  const visible = predictions.filter((prediction) =>
+    showClosed || forecastStatus(prediction, now).status !== "closed");
+  const empty = document.getElementById("forecast-empty");
+  empty.hidden = visible.length > 0;
+  empty.textContent = predictions.length
+    ? "All forecast hours are closed. Select Show closed hours to view them."
+    : "No forecast hours available for this location.";
+  let previousDay = null;
+
+  for (const prediction of visible) {
+    const day = new Date(prediction.time).toLocaleDateString([], {
+      timeZone: TIMEZONE, weekday: "long", month: "short", day: "numeric", year: "numeric",
+    });
+    if (day !== previousDay) {
+      const divider = document.createElement("tr");
+      divider.classList.add("day-divider");
+      const heading = document.createElement("th");
+      heading.colSpan = 4;
+      heading.textContent = day;
+      divider.appendChild(heading);
+      tableBody.appendChild(divider);
+      previousDay = day;
+    }
+    const row = document.createElement("tr");
+    // Highlight the recommended window; its hours are all fully open and upcoming.
+    if (inWindow(best, prediction) && isQuietHourCandidate(prediction, now)) {
+      row.classList.add("quiet-hour");
+    }
+    for (const value of [formatClock(prediction.time), formatCount(prediction.predicted_count)]) {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    }
+    row.appendChild(createCapacityCell(prediction.predicted_percent));
+    const availability = forecastStatus(prediction, now);
+    const statusCell = document.createElement("td");
+    statusCell.textContent = availability.label;
+    statusCell.classList.add("availability-label");
+    row.classList.add(`availability-${availability.status}`);
+    row.appendChild(statusCell);
+    tableBody.appendChild(row);
   }
-  container.appendChild(svg);
-  container.scrollLeft = scrollLeft;
-  updateForecastScrollHint();
 }
 
 function createCapacityCell(percent) {
@@ -522,7 +729,7 @@ function createCapacityCell(percent) {
   track.setAttribute("aria-hidden", "true");
 
   const fill = document.createElement("div");
-  fill.classList.add("capacity-fill");
+  fill.classList.add("capacity-fill", `level-${busyLevel(percent).key}`);
   // Keep the bar within its track while preserving the actual percentage label.
   fill.style.width = `${Math.min(100, Math.max(0, percent))}%`;
 
@@ -530,6 +737,8 @@ function createCapacityCell(percent) {
   cell.append(label, track);
   return cell;
 }
+
+// ------------------------------------------------------------------ formats
 
 function formatTimestamp(value) {
   if (!value) return "Unknown";
@@ -540,11 +749,17 @@ function formatTimestamp(value) {
   if (Number.isNaN(date.getTime())) return "Unknown";
 
   return date.toLocaleString([], {
-    timeZone: "America/New_York",
+    timeZone: TIMEZONE,
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+  });
+}
+
+function formatClock(value) {
+  return new Date(value).toLocaleTimeString([], {
+    timeZone: TIMEZONE, hour: "numeric", minute: "2-digit",
   });
 }
 
@@ -557,6 +772,8 @@ function formatCount(value) {
 function formatPercent(value) {
   return Number.isFinite(value) ? `${Math.round(value)}%` : "—";
 }
+
+// -------------------------------------------------------------- availability
 
 function liveIsFresh(availability, now) {
   return availability?.status_source === "goboard_live"
@@ -600,15 +817,17 @@ function renderCurrentStatus(current) {
   const element = document.getElementById("current-availability");
   element.hidden = !current;
   element.textContent = "";
+  element.setAttribute("data-state", "unknown");
   if (!current) return;
 
   if (current.live_is_fresh === true) {
     const labels = { open: "Open now", closed: "Closed now" };
     const label = labels[current.live_status] ?? "Live status unknown";
+    if (labels[current.live_status]) element.setAttribute("data-state", current.live_status);
     const observed = new Date(current.live_observed_at);
     const time = current.live_observed_at && !Number.isNaN(observed.getTime())
       ? observed.toLocaleTimeString([], {
-        timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
+        timeZone: TIMEZONE, hour: "numeric", minute: "2-digit",
       }) : "unknown time";
     const source = current.status_source === "goboard_live" ? "Live GoBoard" : "Live";
     const conflict = current.schedule_conflict
@@ -628,11 +847,6 @@ function renderCurrentStatus(current) {
   element.textContent = `Status at ${formatTimestamp(current.evaluated_at)}: ${label}. No fresh live confirmation.`;
 }
 
-function renderSelectedLocation() {
-  const location = document.getElementById("location-select").value;
-  if (loadedData?.locations?.[location]) renderLocation(loadedData, location);
-}
-
 document.getElementById("show-closed-hours").onchange = renderSelectedLocation;
 
 loadPredictions();
@@ -648,9 +862,11 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") tick();
 });
 
+// ------------------------------------------------------------------ accuracy
+
 // Historical evaluation is independent of current forecasts and their availability.
 let evaluationHistory = null;
-let historyMessage = "Loading past prediction accuracy…";
+let historyMessage = "Loading past accuracy…";
 const HISTORY_HORIZON = 6;
 
 async function loadEvaluationHistory() {
@@ -664,43 +880,69 @@ async function loadEvaluationHistory() {
     evaluationHistory = data;
   } catch (error) {
     console.error("Could not load evaluation history:", error);
-    historyMessage = "Past prediction accuracy is not available yet.";
+    historyMessage = "Past accuracy is not available yet.";
   }
   renderEvaluationHistory(document.getElementById("location-select").value);
+  // Quiet windows use this location's error, which is only known now.
+  renderSelectedLocation();
 }
 
-function renderEvaluationHistory(locationName) {
-  const container = document.getElementById("history-chart");
-  const summary = document.getElementById("history-summary");
-  container.replaceChildren();
-  document.getElementById("history-location").textContent = locationName || "Choose a location";
-  if (!evaluationHistory) {
-    summary.textContent = historyMessage;
-    return;
-  }
+function historyRows(locationName) {
+  if (!evaluationHistory) return [];
   // Keep the horizon fixed. Never average predictions issued at different lead times.
-  const rows = evaluationHistory.rows.filter((row) =>
+  return evaluationHistory.rows.filter((row) =>
     row.location_name === locationName && row.horizon_hours === HISTORY_HORIZON
     && Number.isFinite(Date.parse(row.target_time))
     && Number.isFinite(row.actual_count) && Number.isFinite(row.predicted_count))
     .sort((a, b) => Date.parse(a.target_time) - Date.parse(b.target_time));
-  if (!rows.length) {
-    summary.textContent = "No past predictions made 6 hours ahead are available for this location.";
+}
+
+function locationMae(locationName) {
+  const rows = historyRows(locationName);
+  if (!rows.length) return null;
+  return rows.reduce((total, row) =>
+    total + Math.abs(row.predicted_count - row.actual_count), 0) / rows.length;
+}
+
+function renderEvaluationHistory(locationName) {
+  const container = document.getElementById("history-chart");
+  const headline = document.getElementById("history-headline");
+  const summary = document.getElementById("history-summary");
+  container.replaceChildren();
+  document.getElementById("history-location").textContent = locationName || "Choose a location";
+  summary.textContent = "";
+  if (!evaluationHistory) {
+    headline.textContent = historyMessage;
     return;
   }
-  const mae = rows.reduce((total, row) =>
-    total + Math.abs(row.predicted_count - row.actual_count), 0) / rows.length;
-  const scope = evaluationHistory.config?.open_only
-    ? "Historical test during open hours (including hours with unknown status)"
-    : "Historical test across all hours";
-  summary.textContent = `Average prediction error: ${mae.toFixed(2)} people (MAE) · ${rows.length} compared hours · ${formatTimestamp(rows[0].target_time)} – ${formatTimestamp(rows[rows.length - 1].target_time)} · ${scope}. Only hours compared across all methods are included.`;
+  const rows = historyRows(locationName);
+  if (!rows.length) {
+    headline.textContent = "No past forecasts to compare for this location yet.";
+    return;
+  }
+  const mae = locationMae(locationName);
+  headline.replaceChildren("Typically within about ");
+  const amount = document.createElement("span");
+  amount.textContent = peopleText(Math.max(1, Math.round(mae)));
+  headline.append(amount);
+  const scope = evaluationHistory.config?.open_only ? "open hours" : "all hours";
+  summary.textContent = `Forecasts made 6 hours ahead for this location were off by `
+    + `${mae.toFixed(1)} people on average, across ${rows.length} past ${scope} `
+    + `(${formatTimestamp(rows[0].target_time)} – ${formatTimestamp(rows[rows.length - 1].target_time)}).`;
   renderHistoryChart(container, rows);
+}
+
+function svgElement(tag, attributes, text) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+  if (text !== undefined) element.textContent = text;
+  return element;
 }
 
 function renderHistoryChart(container, rows) {
   const start = Date.parse(rows[0].target_time);
   const end = Date.parse(rows[rows.length - 1].target_time);
-  const duration = Math.max(3600000, end - start);
+  const duration = Math.max(HOUR_MS, end - start);
   // Give each day room to read; long histories scroll rather than compress hourly peaks.
   const width = Math.max(900, Math.ceil(duration / 86400000) * 100);
   const left = 42, right = width - 24, top = 18, bottom = 190;
@@ -711,7 +953,7 @@ function renderHistoryChart(container, rows) {
   const y = (count) => bottom - (count - floor) / (ceiling - floor) * (bottom - top);
   const svg = svgElement("svg", {
     viewBox: `0 0 ${width} 240`, role: "img",
-    "aria-label": "Past predictions vs. actual occupancy, forecasts made 6 hours ahead. Gaps show hours excluded from the comparison.",
+    "aria-label": "Past forecasts made 6 hours ahead compared with actual occupancy. Gaps show hours excluded from the comparison.",
   });
   svg.style.width = `${width}px`;
   svg.style.minWidth = "100%";
@@ -725,14 +967,14 @@ function renderHistoryChart(container, rows) {
     }, String(count)));
   }
   for (const [field, className, label] of [
-    ["actual_count", "history-actual", "Actual observed occupancy"],
-    ["predicted_count", "history-predicted", "Prediction made 6 hours ahead"],
+    ["actual_count", "history-actual", "Actual people"],
+    ["predicted_count", "history-predicted", "Forecast made 6 hours earlier"],
   ]) {
     let path = "", previous = null;
     for (const row of rows) {
       const time = Date.parse(row.target_time);
       // Missing scored hours and fold boundaries should not imply continuous evidence.
-      const connected = previous && time - Date.parse(previous.target_time) === 3600000
+      const connected = previous && time - Date.parse(previous.target_time) === HOUR_MS
         && row.fold_cutoff === previous.fold_cutoff;
       path += `${connected ? "L" : "M"}${x(time)},${y(row[field])} `;
       const dot = svgElement("circle", {

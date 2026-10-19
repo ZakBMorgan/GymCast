@@ -31,20 +31,23 @@ future accuracy.
 
 ## Preview
 
+Screenshots use real forecasts from the deployed API (October 19, 2026).
+
 ### Desktop
 
-![GymCast desktop dashboard with quietest-hour recommendations and occupancy timeline](docs/images/gymcast-desktop-v2.png)
+![GymCast on desktop: the next hour's crowd level, the best time to go, a 24-hour bar chart colored by crowd level, and past forecast accuracy](docs/images/gymcast-desktop.png)
 
 ### Mobile
 
 <p align="center">
-  <img src="docs/images/gymcast-mobile-v2.png" alt="GymCast mobile dashboard showing occupancy recommendations" width="360" />
+  <img src="docs/images/gymcast-mobile.png" alt="GymCast on a phone: next hour, best time to go, and the 24-hour bar chart" width="360" />
 </p>
 
 ## Highlights
 
-- **Availability-aware recommendations:** highlights quiet upcoming hours only when scheduled fully open.
-- **Hourly forecasts:** predicted people and capacity usage across a 24-hour horizon.
+- **Best time to go:** recommends a window of fully open hours that are about equally quiet, where "about equal" is this location's typical forecast error, instead of an exact hour the forecast cannot really distinguish.
+- **Crowd levels at a glance:** Quiet, Moderate and Busy by percent of each location's capacity, in the cards and on a 24-hour bar chart (tap a bar for details).
+- **Hourly forecasts:** expected people and capacity use across a 24-hour horizon, with the full hour-by-hour table one click away.
 - **Transparent evaluation:** walk-forward backtests against four baselines, with historical actual-versus-predicted comparisons.
 - **Production deployment:** continuously collected observations, automated forecast refreshes every 15 minutes, Flask API, Gunicorn, and Nginx.
 

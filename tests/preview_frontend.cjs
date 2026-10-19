@@ -83,24 +83,24 @@ function send(method,params={},sessionId) {
   fs.writeFileSync(`/tmp/gymcast-polish-overview-${width}.png`,Buffer.from(closedShot.data,'base64'));
   const check=await send('Runtime.evaluate',{expression:`JSON.stringify((()=>{
     const chart=document.getElementById('forecast-chart');
-    const before=chart.scrollLeft; chart.scrollLeft=100; const moved=chart.scrollLeft>before;
-    return {width:innerWidth,scroll:document.documentElement.scrollWidth,chartWidth:chart.clientWidth,
-      svgWidth:chart.querySelector('svg').getBoundingClientRect().width,moved,
-      hintVisible:!document.getElementById('forecast-scroll-hint').hidden,
+    const bars=[...chart.querySelectorAll('.bar')];
+    const last=bars[bars.length-1].getBoundingClientRect(), box=chart.getBoundingClientRect();
+    return {width:innerWidth,scroll:document.documentElement.scrollWidth,bars:bars.length,
+      barsFit:last.right<=box.right+1,readout:document.getElementById('chart-readout').textContent,
       focusVisible:document.getElementById('location-trigger').matches(':focus-visible'),
       time:document.getElementById('next-time').textContent,
       aligned:Object.values(previewData.locations).flat().every(p=>new Date(p.time).getUTCMinutes()===0)};
   })())`,returnByValue:true},sessionId);
   const result=JSON.parse(check.result.value);
   assert.equal(result.scroll,width); assert.equal(result.aligned,true);
-  if(width<500) assert.equal(result.moved,true);
-  assert.equal(result.hintVisible,width<500);
+  // Every forecast hour fits on screen at every width; nothing scrolls sideways.
+  assert.equal(result.barsFit,true); assert(result.bars>0); assert.match(result.readout,/people|Closed/);
   assert.equal(result.focusVisible,true);
-  console.log('PASS chart scroll and aligned fixture', result);
+  console.log('PASS bar chart fits and aligned fixture', result);
   await send('Runtime.evaluate',{expression:'document.getElementById("history-heading").scrollIntoView()'},sessionId);
   const historyCheck=await send('Runtime.evaluate',{expression:'JSON.stringify({paths:document.querySelectorAll("#history-chart path").length,summary:document.getElementById("history-summary").textContent,scroll:document.documentElement.scrollWidth})',returnByValue:true},sessionId);
   const historyResult=JSON.parse(historyCheck.result.value);
-  assert.equal(historyResult.paths,2); assert.match(historyResult.summary,/Average prediction error: 3.00 people/);
+  assert.equal(historyResult.paths,2); assert.match(historyResult.summary,/off by 3\.0 people on average/);
   assert.equal(historyResult.scroll,width);
   const historyShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sessionId);
   fs.writeFileSync(`/tmp/gymcast-polish-history-${width}.png`,Buffer.from(historyShot.data,'base64'));
@@ -113,14 +113,14 @@ function send(method,params={},sessionId) {
           ? "renderLocation({locations:{Preview:previewData.locations[names[0]].map(p=>({...p,predicted_percent:null}))}},'Preview')"
           : "renderLocation({locations:{Preview:previewData.locations[names[0]].map(p=>({...p,facility_status:'unknown',scheduled_status:'unknown'}))}},'Preview')";
     await send('Runtime.evaluate',{expression},sessionId);
-    const stateCheck=await send('Runtime.evaluate',{expression:"JSON.stringify({scroll:document.documentElement.scrollWidth,percent:document.getElementById('next-percent').textContent,recommendedPercent:document.getElementById('recommended-percent').textContent,recommendedHidden:document.getElementById('recommended-values').hidden,barHidden:document.getElementById('next-capacity-track').hidden,hintVisible:!document.getElementById('forecast-scroll-hint').hidden,time:document.getElementById('next-time').textContent})",returnByValue:true},sessionId);
+    const stateCheck=await send('Runtime.evaluate',{expression:"JSON.stringify({scroll:document.documentElement.scrollWidth,meterHidden:document.getElementById('next-meter').hidden,bestLevelHidden:document.getElementById('best-level').hidden,bestPeopleHidden:document.getElementById('best-people').hidden,time:document.getElementById('next-time').textContent})",returnByValue:true},sessionId);
     const stateResult=JSON.parse(stateCheck.result.value);
-    assert.equal(stateResult.scroll,width); assert.equal(stateResult.percent,'—');
-    assert.equal(stateResult.barHidden,true);
-    if(state==='expired') assert.match(stateResult.time,/out of date/);
-    assert.equal(stateResult.hintVisible,state!=='empty' && width<500);
-    assert.equal(stateResult.recommendedPercent,'—');
-    assert.equal(stateResult.recommendedHidden,state!=='missing-capacity');
+    assert.equal(stateResult.scroll,width);
+    // No crowd level without a percentage or an upcoming hour; unknown-hours forecasts keep theirs.
+    assert.equal(stateResult.meterHidden,state!=='unavailable-hours');
+    assert.equal(stateResult.bestLevelHidden,true);
+    if(state==='expired') assert.match(stateResult.time,/not updated recently/);
+    assert.equal(stateResult.bestPeopleHidden,state!=='missing-capacity');
     const stateShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false},sessionId);
     fs.writeFileSync(`/tmp/gymcast-polish-${state}-${width}.png`,Buffer.from(stateShot.data,'base64'));
   }
