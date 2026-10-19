@@ -29,6 +29,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from fileio import atomic_write_text
+
 
 ACADEMIC_CALENDAR_COLUMNS = ["date", "semester_phase"]
 # semester_phase examples: "regular", "dead_week", "finals", "break", "summer_session"
@@ -257,7 +259,8 @@ def build_panel(input_path: str, output_path: str, calendar_path: str | None = N
     hourly = add_campus_context(hourly)
 
     hourly = hourly.sort_values(["location_name", "hour_bucket"]).reset_index(drop=True)
-    hourly.to_csv(output_path, index=False)
+    # The nightly train job can read this file while the refresh timer rebuilds it.
+    atomic_write_text(output_path, hourly.to_csv(index=False))
 
     span = hourly["hour_bucket"].max() - hourly["hour_bucket"].min()
     observed = int(hourly[TARGET_COL].notna().sum())

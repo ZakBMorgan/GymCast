@@ -50,6 +50,7 @@ venv/bin/python tests/test_pipeline.py            # standalone runner, no pytest
 venv/bin/python tests/test_availability.py        # schedule and live-evidence regression suite
 venv/bin/python tests/test_evaluation_history.py  # evaluation export and history API
 venv/bin/python tests/test_characterization.py    # pins numeric output of every stage
+venv/bin/python tests/test_fileio.py              # atomic artifact writes
 node tests/test_frontend.js                       # frontend rendering checks; requires Node.js
 venv/bin/python -m pytest tests/                  # also works if pytest is installed
 ```
@@ -77,6 +78,7 @@ deliberate so the tests run anywhere.
 | `src/collector.py` | GoBoard poller |
 | `src/serve.py` | Flask API |
 | `src/availability.py` | Schedule classification and expiring current-state evidence |
+| `src/fileio.py` | Atomic writes; every published artifact goes through it |
 | `tests/test_pipeline.py` | Leakage and skew assertions — the real spec |
 
 ## Do not change casually

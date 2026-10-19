@@ -36,6 +36,7 @@ from features import (
     build_supervised_frame,
     regularize_hourly,
 )
+from fileio import atomic_write_text
 from train import load_bundle, predict_with
 
 
@@ -138,16 +139,16 @@ def main(model_path: str, features_path: str, hours_ahead: int, output_path: str
     result = to_website_json(frame, capacity_lookup, hours, overrides, current)
 
     origins = {loc: timestamp_text(t) for loc, t in latest_origins(panel).items()}
-    with open(output_path, "w") as f:
-        json.dump({
-            "generated_at": now.isoformat(),
-            "availability_timezone": TIMEZONE,
-            "unrecorded_exceptions_possible": True,
-            "current_availability": current,
-            "forecast_origin": origins,
-            "model_trained_through": str(bundle.get("trained_through")),
-            "locations": result,
-        }, f, indent=2)
+    # The API serves this file while the refresh timer rewrites it.
+    atomic_write_text(output_path, json.dumps({
+        "generated_at": now.isoformat(),
+        "availability_timezone": TIMEZONE,
+        "unrecorded_exceptions_possible": True,
+        "current_availability": current,
+        "forecast_origin": origins,
+        "model_trained_through": str(bundle.get("trained_through")),
+        "locations": result,
+    }, indent=2))
 
     print(f"Wrote {hours_ahead}h predictions for {len(result)} locations to {output_path}")
 

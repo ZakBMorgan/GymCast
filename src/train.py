@@ -19,14 +19,13 @@ Usage (run from src/, defaults point at ../data and ../models):
     python train.py --input ../data/features.csv --model-out ../models/model.pkl
 """
 import argparse
-import os
 import pickle
 import sys
-import tempfile
 
 import numpy as np
 import pandas as pd
 
+from fileio import atomic_write_bytes
 from features import (
     CATEGORICAL_COLS,
     DEFAULT_HORIZONS,
@@ -155,25 +154,9 @@ def predict_with(bundle: dict, df: pd.DataFrame) -> np.ndarray:
 
 
 def save_bundle(bundle: dict, path: str) -> None:
-    directory = os.path.dirname(os.path.abspath(path))
-
-    fd, temp_path = tempfile.mkstemp(
-        prefix=".model-",
-        suffix=".tmp",
-        dir=directory,
-    )
-
-    try:
-        with os.fdopen(fd, "wb") as f:
-            pickle.dump(bundle, f)
-            f.flush()
-            os.fsync(f.fileno())
-
-        os.replace(temp_path, path)
-
-    finally:
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
+    # Serialize fully before touching the file, so a pickling error leaves the
+    # previous model in place for the refresh job.
+    atomic_write_bytes(path, pickle.dumps(bundle))
 
 
 def load_bundle(path: str) -> dict:

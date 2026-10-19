@@ -42,6 +42,7 @@ import numpy as np
 import pandas as pd
 
 from features import DEFAULT_HORIZONS, TARGET_COL
+from fileio import atomic_write_text
 from train import fit_model, load_supervised, predict_with
 
 
@@ -339,8 +340,7 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
         ],
     }
     if report_out:
-        with open(report_out, "w") as fh:
-            json.dump(report, fh, indent=2)
+        atomic_write_text(report_out, json.dumps(report, indent=2))
         print(f"\nWrote report to {report_out}")
     if predictions_out:
         destination = Path(predictions_out)
@@ -351,10 +351,8 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
             "config": report["config"],
             "rows": scored_rows,
         }
-        # Readers see either the previous complete export or the new complete export.
-        temporary = destination.with_suffix(destination.suffix + ".tmp")
-        temporary.write_text(json.dumps(history, allow_nan=False))
-        temporary.replace(destination)
+        # The API serves this export; readers see the previous or the new one, never part of one.
+        atomic_write_text(str(destination), json.dumps(history, allow_nan=False))
         print(f"Wrote scored walk-forward predictions to {destination}")
     return report
 

@@ -30,6 +30,8 @@ jobs:
         run: python tests/test_availability.py
       - name: Evaluation history tests
         run: python tests/test_evaluation_history.py
+      - name: Atomic write tests
+        run: python tests/test_fileio.py
       - name: Characterization test
         run: python tests/test_characterization.py
       - name: Frontend tests
