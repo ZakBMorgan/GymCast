@@ -8,11 +8,8 @@ Shared project context. Read [AGENTS.md](AGENTS.md) for working conventions,
 
 Help Northeastern students choose when to work out by forecasting hourly
 occupancy at Marino Center and SquashBusters locations. Default output is the
-next 24 hours per location. The pipeline, JSON API, and a basic local HTML/CSS/JavaScript frontend exist.
-The frontend uses a responsive, restrained v2 layout with a native SVG chart,
-a primary quietest-hour recommendation, a separate next-open-hour summary,
-and availability table, with quietest-hour
-highlighting restricted to fully scheduled-open hours.
+next 24 hours per location. The pipeline, JSON API, and a dependency-free HTML/CSS/JavaScript frontend
+exist; the frontend is described under Current State.
 
 ## Architecture and data flow
 
@@ -238,56 +235,23 @@ using artifacts produced under the previous timestamp interpretation.
 - Extend evaluation to additional weeks and seasonal changes. Inspect per-horizon
   and per-fold rankings alongside aggregate improvement; the current report still
   shows overall overprediction (aggregate bias +1.76 occupants).
-- The frontend retains all forecast data and hides closed rows by default behind
-  a Show closed hours toggle. It displays closed, partial (with scheduled open
-  minutes), unknown, and special-hour labels. Quietest-hour highlighting requires
-  both scheduled and effective status to be fully open. Current live reports and
-  conflicts appear beside timestamps; expiry is rechecked every 30 seconds.
-  Expired current evidence is presented as a timestamped schedule snapshot.
-  The primary recommendation shows the quietest eligible upcoming hour with its
-  expected capacity percentage and people count, using the existing ranking and
-  earliest-time tie break. The next fully open hour is secondary; matching-hour
-  occupancy metrics are not repeated. Two additional ranked hours appear below.
-  Missing capacity retains the expected count; no eligible hours or expired
-  forecasts produce an empty state. Historical accuracy now describes MAE as
-  average prediction error in people, with walk-forward details in the help text. The floating menu has a clear border/shadow; the forecast
-  SVG uses a 760px minimum width with internal mobile scrolling; a secondary
-  swipe/scroll hint appears only on narrow viewports with actual chart overflow.
-  The dropdown has one visible keyboard focus ring and a down/up SVG chevron.
-  Desktop overview padding is slightly tighter; mobile section spacing is compact
-  while selector touch targets remain unchanged. The next-open comparison uses
-  neutral typography and a muted bar, distinct from the green recommendation.
-  Recognizable separated facility prefixes move to an eyebrow above the shorter
-  location heading; full selector names and data keys remain unchanged. Freshness
-  groups observation and generation timestamps separately with generation age
-  and New York time below.
-  The in-page location listbox groups recognizable facility names,
-  retains unmatched locations, supports keyboard navigation, and enhances the
-  native select only after successful population. The top quietest upcoming
-  recommendation appears near the top in a restrained green surface. The optional
-  `node tests/preview_frontend.cjs` uses hour-aligned synthetic targets (the earlier
-  temporary preview retained wall-clock minutes). Synthetic-fixture Chrome
-  previews at 1440, 375, 390, and 430px show no page-wide overflow. Final checks
-  include keyboard-focused/open menus, viewport containment and stacking, chart
-  scrolling/hint visibility, empty/expired states, and two-series history; iOS Safari
-  and assistive technology have not been directly tested.
-  A primary recommendation plus up to two alternatives retain three quietest fully open hours; local date
-  headings group the table. Metadata is compact and explanations are collapsible.
-  The v2 layout uses CSS tokens and one continuous forecast surface; a native
-  SVG chart includes all hours with closed/partial shading and preserves gaps.
-  Summary metrics select the earliest strictly future forecast with `facility_status == "open"`,
-  labelled Next fully open hour. Quietest recommendations also exclude elapsed hours.
-  Browser time is rechecked every 30 seconds; metadata shows generation age and an
-  expired-horizon warning. The current production forecast chart uses one consistent
-  line for all points, retains closed/partial shading, and shows a Now marker when
-  in range. Historical comparisons belong only to How GymCast performs. Loading uses GET only, never an automatic refresh POST.
-  Summaries have no-upcoming/open-hours fallbacks. They are not live occupancy
-  (which is absent from the API). No chart libraries or backend changes.
-  Dependency-free Node rendering checks cover row/value preservation, status
-  labels, highlighting, expiry, location switching, and chart rendering. Desktop
-  and 390px mobile previews were inspected in headless Chrome using a saved-data
-  fixture; neither viewport had page-wide overflow. Live API integration was
-  not exercised by this visual check.
+- **Frontend (redesigned October 19).** Two cards lead: *Right now* (the forecast
+  for the hour in progress, or the next hour when none exists, plus the next
+  three hours) and *Best time to go*. The best time is a window: consecutive
+  fully open upcoming hours forecast within the location's 6-hour-ahead MAE of
+  the quietest one (5% of capacity, min 2 people, until history loads), with
+  alternatives only if they start within the same band. Crowd levels are percent
+  of capacity: Quiet < 35%, Moderate < 65%, Busy otherwise; windows spanning
+  levels say so ("Quiet to moderate"). A 24-hour HTML bar chart (roving tab stop,
+  arrow keys, tap/hover readout) shows closed hours as hatched stubs and brackets
+  the best window. The hour-by-hour table is collapsed by default; the accuracy
+  section leads with "Typically within about N people". Dark mode follows the
+  system setting; colors pass WCAG AA (text 4.5:1, bars 3:1) in both themes.
+  Eligibility rules are unchanged: recommendations need scheduled and effective
+  status fully open and a strictly future start; data is never mutated; loading
+  is GET-only with a 10-minute background refetch. `node tests/test_frontend.js`
+  covers the rules; `node tests/preview_frontend.cjs` (needs Chrome) checks real
+  layout at 1440/375/390/430 px. iOS Safari and screen readers are untested.
 - The calendar join works, but `academic_calendar.csv` is header-only. Populate
   known dates and measure whether the feature helps; it is currently `unknown`.
 - No prediction intervals, and no scheduled evaluation: the model retrains

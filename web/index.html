@@ -3,26 +3,26 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Hourly occupancy forecasts for Northeastern campus gyms. Find a quieter time to work out.">
-    <title>Northeastern Marino Gym Occupancy Forecast | GymCast</title>
+    <meta name="description" content="Hourly crowd forecasts for Northeastern's Marino Center and SquashBusters. Find a quieter time to work out.">
+    <meta name="color-scheme" content="light dark">
+    <title>Marino Center Gym Crowd Forecast | GymCast</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script src="app.js" defer></script>
   </head>
   <body>
-    <a class="skip-link" href="#forecast-detail">Skip to hourly forecast</a>
+    <a class="skip-link" href="#forecast-detail">Skip to the hour-by-hour table</a>
     <header class="site-header">
-      <div>
+      <div class="brand">
         <h1>GymCast<span class="brand-dot" aria-hidden="true">.</span></h1>
-        <p>GymCast helps Northeastern students find quieter gym hours at Marino Center and SquashBusters.</p>
+        <p>Hourly crowd forecasts for Marino Center and SquashBusters.</p>
       </div>
-      <span class="header-context">Northeastern <span aria-hidden="true">/</span> Campus recreation</span>
     </header>
 
     <main>
       <div class="location-toolbar">
         <div class="location-control">
-          <label id="location-label" for="location-select">Choose a location</label>
+          <label id="location-label" for="location-select">Location</label>
           <select id="location-select" disabled>
             <option>Loading locations…</option>
           </select>
@@ -42,145 +42,120 @@
         <p id="status" role="status">Forecasts are not loaded yet.</p>
       </div>
 
-      <article class="forecast-sheet" aria-labelledby="forecast-heading">
-        <section class="location-overview" aria-labelledby="forecast-heading">
-          <div class="location-description">
-            <p id="location-facility" class="eyebrow">Your location</p>
-            <h2 id="forecast-heading">Hourly forecast</h2>
-            <p id="current-availability" class="current-status" role="status" hidden></p>
-            <p class="data-note">People counts on this page are forecasts, not live counts.</p>
-          </div>
-          <section class="recommended-hour" aria-labelledby="recommended-heading">
-            <h3 id="recommended-heading">Quietest upcoming hour</h3>
-            <p id="recommended-time" class="recommendation-time" role="status">Awaiting forecast</p>
-            <div id="recommended-values" hidden>
-              <p class="metric-label">Expected capacity used</p>
-              <p id="recommended-percent" class="metric-value">—</p>
-              <div id="recommended-capacity-track" class="overview-capacity-track" hidden aria-hidden="true">
-                <div id="recommended-capacity-fill" class="capacity-fill"></div>
-              </div>
-              <p id="recommended-percent-note" class="metric-detail"></p>
-              <p class="people-value"><span id="recommended-count">—</span> <span class="metric-unit">people expected</span></p>
-            </div>
-            <p id="recommended-explanation" class="data-note">The lowest expected number of people among upcoming hours
-              scheduled to be open for the full hour in this forecast. Estimates, not live counts or guaranteed space.</p>
-          </section>
-          <section class="forecast-metrics" aria-labelledby="next-heading">
-            <div class="forecast-target">
-              <h3 id="next-heading">Next fully open hour</h3>
-              <p id="next-time" class="target-time">Awaiting forecast</p>
-              <p id="next-availability" class="metric-detail">Availability unknown</p>
-            </div>
-            <p id="next-recommendation-note" class="data-note" hidden></p>
-            <div id="next-values">
-              <div class="capacity-metric">
-                <p class="metric-label">Expected capacity used</p>
-                <p id="next-percent" class="metric-value">—</p>
-                <div id="next-capacity-track" class="overview-capacity-track" hidden aria-hidden="true">
-                  <div id="next-capacity-fill" class="capacity-fill"></div>
-                </div>
-                <p id="next-percent-note" class="metric-detail"></p>
-              </div>
-              <div class="people-metric">
-                <p class="people-value"><span id="next-count">—</span> <span class="metric-unit">people expected</span></p>
-              </div>
-            </div>
-          </section>
-        </section>
-
-        <div class="freshness-strip" aria-label="Forecast freshness">
-          <div class="freshness-times">
-            <span>Latest observation <strong id="forecast-origin">—</strong></span>
-            <span>Forecast generated <strong id="generated-at">—</strong></span>
-          </div>
-          <p class="freshness-context">
-            <span id="forecast-freshness" role="status"></span>
-            <span class="freshness-timezone">New York time</span>
-          </p>
+      <section class="location-heading" aria-labelledby="forecast-heading">
+        <p id="location-facility" class="eyebrow">Your location</p>
+        <h2 id="forecast-heading">Hourly forecast</h2>
+        <div class="heading-meta">
+          <p id="current-availability" class="status-pill" role="status" hidden></p>
+          <p id="forecast-freshness" class="freshness" role="status"></p>
         </div>
+      </section>
 
-        <section class="best-times" aria-labelledby="best-times-heading">
-          <div class="section-heading">
-            <h3 id="best-times-heading">Other quiet hours</h3>
-            <p>Expected crowds · Scheduled to be open for the full hour</p>
+      <div class="summary-grid">
+        <section class="card next-card" aria-labelledby="next-heading">
+          <h3 id="next-heading" class="card-label">Right now</h3>
+          <p id="next-time" class="card-time">Awaiting forecast</p>
+          <p id="next-level" class="level-chip" hidden></p>
+          <p id="next-people" class="card-people" hidden></p>
+          <div id="next-meter" class="meter" hidden aria-hidden="true">
+            <div id="next-meter-fill" class="meter-fill"></div>
+            <span class="meter-tick" style="left: 35%"></span>
+            <span class="meter-tick" style="left: 65%"></span>
           </div>
-          <ol id="quiet-hours-summary" class="quiet-summary" aria-label="Alternative quiet hours"></ol>
-        </section>
-
-        <section class="chart-section" aria-labelledby="chart-heading">
-          <div class="section-heading">
-            <h3 id="chart-heading">Forecast timeline</h3>
-            <p>Predicted occupancy · People</p>
-          </div>
-          <div id="forecast-chart" class="chart-scroll" tabindex="0" aria-describedby="forecast-scroll-hint" aria-label="Occupancy chart; scroll horizontally on small screens"></div>
-          <p id="forecast-scroll-hint" class="chart-scroll-hint" hidden>Swipe or scroll to explore all forecast hours →</p>
-          <div class="chart-legend" aria-label="Chart legend">
-            <span><i class="legend-line" aria-hidden="true"></i> Current forecast</span>
-            <span><i class="legend-closed" aria-hidden="true"></i> Closed hour</span>
-            <span><i class="legend-partial" aria-hidden="true"></i> Partial hour</span>
-            <span>Includes all hours; full availability details below.</span>
+          <p id="next-note" class="card-note"></p>
+          <div id="coming-up" class="sublist" hidden>
+            <h4>Coming up</h4>
+            <ol id="coming-up-list"></ol>
           </div>
         </section>
 
-        <section id="forecast-detail" class="detail-section" aria-labelledby="detail-heading">
-          <div class="section-heading detail-heading">
-            <div>
-              <h3 id="detail-heading">Hour by hour</h3>
-              <p>Compare occupancy and scheduled availability.</p>
-            </div>
+        <section class="card best-card" aria-labelledby="best-heading">
+          <h3 id="best-heading" class="card-label">Best time to go</h3>
+          <p id="best-window" class="card-time">Awaiting forecast</p>
+          <p id="best-level" class="level-chip" hidden></p>
+          <p id="best-people" class="card-people" hidden></p>
+          <p id="best-explanation" class="card-note" hidden></p>
+          <div id="also-quiet" class="sublist" hidden>
+            <h4>Also quiet</h4>
+            <ol id="also-quiet-list"></ol>
+          </div>
+        </section>
+      </div>
+
+      <section class="card chart-card" aria-labelledby="chart-heading">
+        <div class="section-heading">
+          <h3 id="chart-heading">Next 24 hours</h3>
+          <ul class="legend" aria-label="Crowd levels">
+            <li><i class="swatch level-quiet" aria-hidden="true"></i>Quiet <span>under 35% full</span></li>
+            <li><i class="swatch level-moderate" aria-hidden="true"></i>Moderate</li>
+            <li><i class="swatch level-busy" aria-hidden="true"></i>Busy <span>65%+</span></li>
+            <li><i class="swatch level-closed" aria-hidden="true"></i>Closed</li>
+          </ul>
+        </div>
+        <p id="chart-readout" class="chart-readout" aria-live="polite"></p>
+        <div id="forecast-chart" class="bar-chart" role="group"
+          aria-label="Expected people for each forecast hour. Use the arrow keys to move between hours."></div>
+        <p class="chart-hint">Tap or hover a bar for details. Bars show forecasts, not live counts.</p>
+      </section>
+
+      <section id="forecast-detail" class="card detail-card" aria-labelledby="detail-heading">
+        <details id="detail-toggle">
+          <summary>
+            <h3 id="detail-heading">Hour-by-hour table</h3>
+            <span class="summary-hint">Every forecast hour with scheduled availability</span>
+          </summary>
+          <div class="detail-body">
             <label for="show-closed-hours" class="closed-toggle">
               <input type="checkbox" id="show-closed-hours"> Show closed hours
             </label>
-          </div>
-          <p id="forecast-empty" class="empty-state" role="status" hidden></p>
-          <div class="table-scroll" tabindex="0" aria-label="Hourly forecast table; scroll horizontally on small screens">
-            <table>
-              <caption class="sr-only">Predicted occupancy and availability by hour</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Time</th>
-                  <th scope="col">Predicted people</th>
-                  <th scope="col">Capacity used</th>
-                  <th scope="col">Availability</th>
-                </tr>
-              </thead>
-              <tbody id="forecast-rows"></tbody>
-            </table>
-          </div>
-          <details class="forecast-help">
-            <summary>How to read this forecast</summary>
-            <p>Highlights mark the lowest occupancy among upcoming, fully scheduled-open hours.
-              Partial and unknown hours are excluded. Closed hours stay in the data,
-              and their predicted counts are unchanged. Occupancy predictions do not
-              guarantee availability; scheduled hours may have unrecorded exceptions.</p>
-          </details>
-        </section>
-        <section class="chart-section" aria-labelledby="history-heading">
-          <div class="section-heading">
-            <div>
-              <h3 id="history-heading">How GymCast performs</h3>
-              <p>Past predictions vs. actual occupancy · Forecasts made 6 hours ahead</p>
+            <p id="forecast-empty" class="empty-state" role="status" hidden></p>
+            <div class="table-scroll" tabindex="0" aria-label="Hourly forecast table; scroll horizontally on small screens">
+              <table>
+                <caption class="sr-only">Expected people, capacity, crowd level and availability by hour</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Time</th>
+                    <th scope="col">People</th>
+                    <th scope="col">Capacity used</th>
+                    <th scope="col">Hours</th>
+                  </tr>
+                </thead>
+                <tbody id="forecast-rows"></tbody>
+              </table>
             </div>
+            <p class="detail-meta">
+              Latest observation <strong id="forecast-origin">—</strong> ·
+              Forecast generated <strong id="generated-at">—</strong> · New York time
+            </p>
           </div>
-          <p id="history-location" class="sr-only"></p>
-          <p id="history-summary" class="data-note" role="status">Loading past prediction accuracy…</p>
-          <div id="history-chart" class="chart-scroll" tabindex="0"
-            aria-label="Historical accuracy chart; scroll horizontally to inspect all dates"></div>
-          <div class="chart-legend">
-            <span><i class="legend-actual" aria-hidden="true"></i> Actual observed occupancy</span>
-            <span><i class="legend-predicted" aria-hidden="true"></i> Prediction made 6 hours ahead</span>
-          </div>
-          <p class="data-note">These are historical test forecasts, not saved live forecasts. Each test model used
-            only earlier data (walk-forward evaluation). Gaps show hours excluded from the accuracy
-            comparison. Average prediction error (MAE) is the average absolute difference between
-            expected and observed people counts. All times in New York.</p>
-        </section>
-      </article>
-      <noscript><p class="empty-state">Enable JavaScript to load location forecasts.</p></noscript>
+        </details>
+      </section>
+
+      <section class="card accuracy-card" aria-labelledby="history-heading">
+        <h3 id="history-heading">How accurate is this?</h3>
+        <p id="history-headline" class="accuracy-headline">Loading past accuracy…</p>
+        <p id="history-location" class="sr-only"></p>
+        <p id="history-summary" class="card-note" role="status"></p>
+        <div id="history-chart" class="history-scroll" tabindex="0"
+          aria-label="Past predictions compared with actual occupancy; scroll horizontally to see all dates"></div>
+        <ul class="legend history-legend">
+          <li><i class="line-swatch actual" aria-hidden="true"></i>Actual people</li>
+          <li><i class="line-swatch predicted" aria-hidden="true"></i>Forecast made 6 hours earlier</li>
+        </ul>
+        <details class="method">
+          <summary>How this was measured</summary>
+          <p>These are past test forecasts, not saved live ones. Each test model was trained
+            only on data from before the hours it predicted (walk-forward evaluation), so it
+            never saw the answers. The error is the average difference between expected and
+            observed people. Gaps are hours left out of the comparison. Times are New York time.</p>
+        </details>
+      </section>
+      <noscript><p class="empty-state">Turn on JavaScript to load forecasts.</p></noscript>
     </main>
+
     <footer class="site-footer">
-      <span>GymCast · Plan around the crowds.</span>
-      <span>Forecasts are estimates, not a guarantee of space.</span>
+      <p>GymCast is an independent student project, not affiliated with Northeastern University.</p>
+      <p>Forecasts are estimates, not a guarantee of space.</p>
     </footer>
     <!-- Cloudflare Web Analytics -->
     <script
