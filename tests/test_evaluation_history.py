@@ -143,5 +143,56 @@ class ApiReliabilityTests(unittest.TestCase):
                 self.assertIn("Forecast unavailable", response.json["error"])
 
 
+class DeploymentModeTests(unittest.TestCase):
+    """Gunicorn's app has no CORS and no refresh route; the development server has both."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.predictions = Path(self.directory.name) / "predictions.json"
+        self.predictions.write_text(json.dumps({"locations": {"Marino": []}}))
+        self.patch = patch.object(serve, "PREDICTIONS_FILE", str(self.predictions))
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        self.directory.cleanup()
+
+    def test_both_modes_serve_identical_data(self):
+        production = serve.app.test_client().get("/api/predictions")
+        development = serve.create_app(dev=True).test_client().get("/api/predictions")
+        self.assertEqual(production.status_code, 200)
+        self.assertEqual(production.json, development.json)
+
+    def test_production_sends_no_cors_headers(self):
+        client = serve.app.test_client()
+        response = client.get("/api/predictions", headers={"Origin": "https://other.example"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("Access-Control-Allow-Origin", response.headers)
+        preflight = client.options("/api/predictions", headers={
+            "Origin": "https://other.example", "Access-Control-Request-Method": "GET"})
+        self.assertNotIn("Access-Control-Allow-Origin", preflight.headers)
+
+    def test_development_allows_the_local_frontend(self):
+        response = serve.create_app(dev=True).test_client().get(
+            "/api/predictions", headers={"Origin": "http://localhost:8765"})
+        # flask-cors echoes the requesting origin; either form allows the request.
+        self.assertIn(response.headers.get("Access-Control-Allow-Origin"),
+                      ("*", "http://localhost:8765"))
+
+    def test_refresh_exists_only_on_the_development_server(self):
+        self.assertEqual(serve.app.test_client().post("/api/refresh").status_code, 404)
+        dev = serve.create_app(dev=True).test_client()
+        with patch.object(serve.subprocess, "run") as run:
+            response = dev.post("/api/refresh")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([c.args[0][1].rsplit(os.sep, 1)[-1] for c in run.call_args_list],
+                         ["features.py", "predict.py"])
+        failure = serve.subprocess.CalledProcessError(1, "predict.py")
+        with patch.object(serve.subprocess, "run", side_effect=failure):
+            response = dev.post("/api/refresh")
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("features.py failed", response.json["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

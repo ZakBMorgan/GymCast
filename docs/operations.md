@@ -37,8 +37,11 @@ chart, dates from 2026-10-07 and does not track the nightly model.
 
 - `/` serves the static frontend from `/var/www/gymcast`, falling back to
   `index.html`.
-- `/api/refresh` returns 403. The refresh timer runs the pipeline directly, so
-  the endpoint is not needed in production.
+- `/api/refresh` returns 403. Gunicorn's app no longer has that route either
+  (it exists only on the development server); the refresh timer runs the
+  pipeline directly. The Nginx block is kept as a second layer.
+- Gunicorn sends no CORS headers. The page and API share one origin, so
+  browsers do not need them.
 - `/api/` proxies to Gunicorn on `127.0.0.1:8000` with `Host`, `X-Real-IP`,
   `X-Forwarded-For` and `X-Forwarded-Proto` headers.
 - Port 80 redirects to HTTPS.

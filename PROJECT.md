@@ -138,8 +138,10 @@ zero, not capacity. Output includes `generated_at`, per-location
 Percentages are null without capacity; they can exceed 100%.
 
 `GET /api/predictions` reads the saved JSON without inference.
-`POST /api/refresh` runs features → predict using `sys.executable` and the source
-directory as working directory. It neither collects nor retrains. Collection,
+`POST /api/refresh` (development server only) runs features → predict using
+`sys.executable` and the source directory as working directory. It neither
+collects nor retrains. CORS is also development-only: production serves the page
+and API from one origin, and `create_app()` builds each variant. Collection,
 refresh, and model retraining have separate lifecycles.
 
 ## Current State

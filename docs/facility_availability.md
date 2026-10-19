@@ -251,7 +251,7 @@ From `src/`, defaults attach the maintained configuration and raw poll evidence:
 
 Optional paths are `--facility-hours`, `--facility-overrides`, and
 `--live-observations`. Pass `--live-observations ''` to disable current evidence.
-`POST /api/refresh` inherits these default paths when it runs `predict.py`.
+`POST /api/refresh` (development server only) inherits these default paths when it runs `predict.py`.
 No model retraining is required to change schedule configuration.
 
 From the repository root:

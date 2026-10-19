@@ -172,7 +172,12 @@ The API runs at `http://localhost:5000`:
 |---|---|
 | `GET /api/predictions` | Reads the saved `outputs/predictions.json`; does not run the model. |
 | `GET /api/evaluation-history?horizon=6` | Reads scored walk-forward history for one horizon; no evaluation runs on request. |
-| `POST /api/refresh` | Rebuilds the hourly panel and predictions using the existing model. |
+| `POST /api/refresh` | Rebuilds the hourly panel and predictions using the existing model. Development server only. |
+
+`python serve.py` also enables CORS, so a page served from another local port
+(for example `cd web && python3 -m http.server 8765`, then open
+`http://localhost:8765`) can call it. Production Gunicorn has neither the refresh
+route nor CORS.
 
 Refresh does not collect observations or retrain. Keep collection running
 separately, and rerun `train.py` when you want to update the learned model.
