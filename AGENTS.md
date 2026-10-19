@@ -51,6 +51,7 @@ venv/bin/python tests/test_availability.py        # schedule and live-evidence r
 venv/bin/python tests/test_evaluation_history.py  # evaluation export and history API
 venv/bin/python tests/test_characterization.py    # pins numeric output of every stage
 venv/bin/python tests/test_fileio.py              # atomic artifact writes
+venv/bin/python tests/test_collector.py           # poll rows and API-key redaction
 node tests/test_frontend.js                       # frontend rendering checks; requires Node.js
 venv/bin/python -m pytest tests/                  # also works if pytest is installed
 ```
