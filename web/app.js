@@ -9,8 +9,13 @@ const EXPIRED_FORECAST =
 
 const statusElement = document.getElementById("status");
 
-async function loadPredictions() {
-  statusElement.textContent = "Loading forecasts…";
+// The droplet regenerates predictions.json on its own schedule; re-reading it picks that up.
+const REFETCH_MS = 10 * 60000;
+let lastFetchedAt = 0;
+
+async function loadPredictions({ background = false } = {}) {
+  if (!background) statusElement.textContent = "Loading forecasts…";
+  lastFetchedAt = Date.now();
 
   try {
     const response = await fetch(`${API_BASE}/api/predictions`, { method: "GET" });
@@ -20,9 +25,17 @@ async function loadPredictions() {
     }
 
     const data = await response.json();
-    loadedData = data;
     const locations = Object.keys(data.locations ?? {});
     const previousLocation = document.getElementById("location-select").value;
+
+    // Rebuilding the picker would close an open menu, so only swap data when locations match.
+    if (background && loadedData
+      && JSON.stringify(Object.keys(loadedData.locations ?? {})) === JSON.stringify(locations)) {
+      loadedData = data;
+      renderSelectedLocation();
+      return;
+    }
+    loadedData = data;
 
     if (locations.length === 0) {
       statusElement.textContent = "No locations available yet.";
@@ -45,18 +58,18 @@ async function loadPredictions() {
 
     locationSelect.onchange = () => {
       syncLocationPicker();
-      renderLocation(data, locationSelect.value);
+      renderSelectedLocation();
     };
 
     enhanceLocationPicker(locations);
     renderLocation(data, locationSelect.value);
 
-    statusElement.textContent =
-      `Loaded forecasts for ${locations.length} locations.`;
+    statusElement.textContent = "";
   } catch (error) {
     console.error("Could not load forecasts:", error);
-    statusElement.textContent =
-      "Could not load forecasts. Check that the Flask API is running.";
+    // A failed background refresh keeps the forecast already on screen.
+    if (background && loadedData) return;
+    statusElement.textContent = "Forecasts are temporarily unavailable. Try again shortly.";
   }
 }
 
@@ -249,7 +262,7 @@ function renderLocation(data, locationName, now = Date.now()) {
         hour: "numeric",
         minute: "2-digit",
       }),
-      prediction.predicted_count,
+      formatCount(prediction.predicted_count),
     ];
 
     for (const value of values) {
@@ -305,9 +318,8 @@ function renderBestTimes(candidates, predictions, now) {
       : "No upcoming fully open hours with an occupancy estimate are available.";
   document.getElementById("recommended-values").hidden = !best;
   document.getElementById("recommended-explanation").hidden = !best;
-  document.getElementById("recommended-count").textContent = best?.predicted_count ?? "—";
-  document.getElementById("recommended-percent").textContent = hasPercent
-    ? `${best.predicted_percent}%` : "—";
+  document.getElementById("recommended-count").textContent = formatCount(best?.predicted_count);
+  document.getElementById("recommended-percent").textContent = formatPercent(best?.predicted_percent);
   document.getElementById("recommended-capacity-track").hidden = !hasPercent;
   document.getElementById("recommended-capacity-fill").style.width =
     `${hasPercent ? Math.max(0, Math.min(100, best.predicted_percent)) : 0}%`;
@@ -331,10 +343,11 @@ function renderBestTimes(candidates, predictions, now) {
     const time = document.createElement("strong");
     time.textContent = formatTimestamp(prediction.time);
     const count = document.createElement("span");
-    count.textContent = `${prediction.predicted_count} people expected`;
+    count.textContent = `${formatCount(prediction.predicted_count)} people expected`;
     const percent = document.createElement("span");
     percent.textContent = Number.isFinite(prediction.predicted_percent)
-      ? `${prediction.predicted_percent}% capacity used` : "Capacity estimate unavailable";
+      ? `${formatPercent(prediction.predicted_percent)} capacity used`
+      : "Capacity estimate unavailable";
     item.append(time, count, percent);
     summary.appendChild(item);
   }
@@ -350,10 +363,8 @@ function renderForecastOverview(predictions, now, quietest = null) {
   document.getElementById("next-recommendation-note").hidden = !sameHour;
   document.getElementById("next-recommendation-note").textContent = sameHour
     ? "Also the quietest hour recommended above." : "";
-  document.getElementById("next-count").textContent =
-    Number.isFinite(next?.predicted_count) ? next.predicted_count : "—";
-  document.getElementById("next-percent").textContent =
-    Number.isFinite(next?.predicted_percent) ? `${next.predicted_percent}%` : "—";
+  document.getElementById("next-count").textContent = formatCount(next?.predicted_count);
+  document.getElementById("next-percent").textContent = formatPercent(next?.predicted_percent);
   const percent = next?.predicted_percent;
   const hasPercent = Number.isFinite(percent);
   document.getElementById("next-capacity-track").hidden = !hasPercent;
@@ -460,7 +471,7 @@ function renderForecastChart(predictions, now) {
       class: "chart-point",
     });
     dot.appendChild(svgElement("title", {},
-      `${formatTimestamp(p.time)}: ${p.predicted_count} people predicted · ${forecastStatus(p, now).label}`));
+      `${formatTimestamp(p.time)}: ${formatCount(p.predicted_count)} people predicted ·${forecastStatus(p, now).label}`));
     svg.appendChild(dot);
   }
 
@@ -500,7 +511,7 @@ function createCapacityCell(percent) {
   }
 
   const label = document.createElement("span");
-  label.textContent = `${percent}%`;
+  label.textContent = formatPercent(percent);
 
   const track = document.createElement("div");
   track.classList.add("capacity-track");
@@ -532,6 +543,16 @@ function formatTimestamp(value) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+// Display only: the model's error is several people, so decimals overstate precision.
+// Ranking and highlighting still use the unrounded values.
+function formatCount(value) {
+  return Number.isFinite(value) ? String(Math.round(value)) : "—";
+}
+
+function formatPercent(value) {
+  return Number.isFinite(value) ? `${Math.round(value)}%` : "—";
 }
 
 function liveIsFresh(availability, now) {
@@ -613,9 +634,16 @@ document.getElementById("show-closed-hours").onchange = renderSelectedLocation;
 
 loadPredictions();
 
-// Advance upcoming recommendations and chart timing without fetching or refreshing data.
-// Current-status freshness still comes from the backend snapshot.
-setInterval(renderSelectedLocation, 30000);
+// Advance upcoming recommendations and chart timing every tick; re-read the API less often.
+function tick() {
+  if (Date.now() - lastFetchedAt >= REFETCH_MS) loadPredictions({ background: true });
+  else renderSelectedLocation();
+}
+setInterval(tick, 30000);
+// Phones suspend timers in background tabs, so check again when the page is shown.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") tick();
+});
 
 // Historical evaluation is independent of current forecasts and their availability.
 let evaluationHistory = null;
@@ -708,7 +736,7 @@ function renderHistoryChart(container, rows) {
         cx: x(time), cy: y(row[field]), r: 2, class: className,
       });
       dot.appendChild(svgElement("title", {},
-        `${formatTimestamp(row.target_time)} · ${label}: ${row[field]} people`));
+        `${formatTimestamp(row.target_time)} · ${label}: ${formatCount(row[field])} people`));
       svg.appendChild(dot);
       previous = row;
     }

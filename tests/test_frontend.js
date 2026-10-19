@@ -79,6 +79,7 @@ async function main(hostname, expectedBase) {
   let interval;
   const listeners = {};
   const requests = [];
+  let fetchFails = false;
   const context = vm.createContext({
     window: { location: { hostname }, innerWidth: 1440,
       addEventListener: (name, handler) => { listeners[`window:${name}`] = handler; } },
@@ -88,6 +89,7 @@ async function main(hostname, expectedBase) {
     fetch: async (url, options) => {
       requests.push({ url, method: options?.method ?? "GET" });
       if (url.includes("/api/evaluation-history")) return { ok: false, status: 404 };
+      if (fetchFails) return { ok: false, status: 502 };
       return { ok: true, json: async () => data };
     },
     setInterval: (callback) => { interval = callback; },
@@ -415,6 +417,27 @@ async function main(hostname, expectedBase) {
   assert.equal(ids["location-menu"].children[0].attributes["aria-label"], "Marino Center");
   assert.equal(ids["location-menu"].children[1].attributes["aria-label"], "SquashBusters");
   assert.equal(ids["location-menu"].children[2].attributes["aria-label"], "Other locations");
+  assert.equal(context.formatCount(22.6), "23");
+  assert.equal(context.formatCount(null), "—");
+  assert.equal(context.formatPercent(25.1), "25%");
+  context.renderLocation({ locations: { Frac: [prediction("open", 22.6)] } }, "Frac", now);
+  assert.equal(forecastRows()[0].children[1].textContent, "23", "table shows whole people");
+  assert.equal(forecastRows()[0].children[2].children[0].textContent, "45%");
+  assert.equal(ids["recommended-count"].textContent, "23");
+  assert.equal(ids["recommended-percent"].textContent, "45%");
+
+  assert.equal(ids.status.textContent, "", "successful load shows no status message");
+  context.enhanceLocationPicker(Object.keys(data.locations));
+  ids["location-trigger"].onclick();
+  await context.loadPredictions({ background: true });
+  assert.equal(ids["location-menu"].hidden, false, "background refresh keeps an open menu open");
+  fetchFails = true;
+  await context.loadPredictions({ background: true });
+  assert.equal(ids.status.textContent, "", "failed background refresh keeps the shown forecast");
+  await context.loadPredictions();
+  assert.match(ids.status.textContent, /temporarily unavailable/);
+  assert.doesNotMatch(ids.status.textContent, /Flask/);
+  fetchFails = false;
   assert.equal(JSON.stringify(data), original, "rendering never mutates predictions");
   console.log(`PASS (${hostname}): API URLs, rendering, history, unchanged values, and GET-only loading`);
 }
