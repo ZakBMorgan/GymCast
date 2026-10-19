@@ -1,0 +1,40 @@
+# Runs every suite on pushes to main and on pull requests. Python matches the
+# production droplet (3.12); the pinned requirements match its installed packages.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Pipeline leakage and parity tests
+        run: python tests/test_pipeline.py
+      - name: Availability tests
+        run: python tests/test_availability.py
+      - name: Evaluation history tests
+        run: python tests/test_evaluation_history.py
+      - name: Collector tests
+        run: python tests/test_collector.py
+      - name: Atomic write tests
+        run: python tests/test_fileio.py
+      - name: Characterization test
+        run: python tests/test_characterization.py
+      - name: Frontend tests
+        run: node tests/test_frontend.js

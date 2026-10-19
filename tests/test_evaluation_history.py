@@ -1,5 +1,6 @@
 """Run with venv/bin/python tests/test_evaluation_history.py."""
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -91,6 +92,54 @@ class EvaluationHistoryTests(unittest.TestCase):
             response = serve.app.test_client().get("/api/evaluation-history")
             self.assertEqual(response.status_code, 404)
             self.assertIn("evaluate.py", response.json["error"])
+
+
+class ApiReliabilityTests(unittest.TestCase):
+    def write_history(self, path, predicted):
+        rows = [{"location_name": "Marino", "horizon_hours": h, "predicted_count": predicted,
+                 "actual_count": 10., "target_time": "2026-10-04T12:00:00-04:00"} for h in (1, 6)]
+        path.write_text(json.dumps({"evaluation_type": "walk_forward", "config": {}, "rows": rows}))
+
+    def test_history_parses_once_per_export_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "history.json"
+            self.write_history(path, 12.)
+            client = serve.app.test_client()
+            with patch.object(serve, "EVALUATION_FILE", str(path)), \
+                 patch.object(serve.json, "load", wraps=json.load) as load:
+                first = client.get("/api/evaluation-history?horizon=6").json
+                second = client.get("/api/evaluation-history?horizon=6").json
+                self.assertEqual(first, second)
+                self.assertEqual(load.call_count, 1, "repeat requests must not re-parse the export")
+                self.assertEqual([r["horizon_hours"] for r in first["rows"]], [6])
+                # A new export (different size and mtime) replaces the cached rows.
+                self.write_history(path, 123.)
+                os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 10**9))
+                refreshed = client.get("/api/evaluation-history?horizon=6").json
+                self.assertEqual(refreshed["rows"][0]["predicted_count"], 123.)
+                self.assertEqual(load.call_count, 2)
+
+    def test_corrupt_history_is_a_json_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "history.json"
+            path.write_text('{"rows": [')
+            with patch.object(serve, "EVALUATION_FILE", str(path)):
+                response = serve.app.test_client().get("/api/evaluation-history?horizon=6")
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("evaluate.py", response.json["error"])
+
+    def test_missing_or_corrupt_predictions_are_json_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "predictions.json"
+            client = serve.app.test_client()
+            with patch.object(serve, "PREDICTIONS_FILE", str(path)):
+                missing = client.get("/api/predictions")
+                path.write_text('{"locations": {')
+                corrupt = client.get("/api/predictions")
+            for response in (missing, corrupt):
+                self.assertEqual(response.status_code, 503)
+                self.assertTrue(response.is_json, "errors must be JSON, not Flask's HTML page")
+                self.assertIn("Forecast unavailable", response.json["error"])
 
 
 if __name__ == "__main__":

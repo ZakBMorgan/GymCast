@@ -22,8 +22,9 @@ the backend line `train.py` prints, so check it before comparing runs.
 
 ## Running
 
-All scripts default to `../data`, `../models`, `../outputs` relative to `src/`,
-so run them from `src/` with no flags:
+Default paths come from `src/paths.py` and point at the repository's `data/`,
+`models/` and `outputs/` from any working directory. Production runs them from
+`src/` (flat imports need it on the path), so the examples do too:
 
 ```bash
 cd src
@@ -46,14 +47,24 @@ Useful flags: `evaluate.py --folds N --test-days N --min-train-days N
 ## Tests
 
 ```bash
-venv/bin/python tests/test_pipeline.py    # standalone runner, no pytest dependency
-venv/bin/python tests/test_availability.py # schedule and live-evidence regression suite
-node tests/test_frontend.js               # frontend rendering checks; requires Node.js
-venv/bin/python -m pytest tests/ # also works if pytest is installed
+venv/bin/python tests/test_pipeline.py            # standalone runner, no pytest dependency
+venv/bin/python tests/test_availability.py        # schedule and live-evidence regression suite
+venv/bin/python tests/test_evaluation_history.py  # evaluation export and history API
+venv/bin/python tests/test_characterization.py    # pins numeric output of every stage
+venv/bin/python tests/test_fileio.py              # atomic artifact writes
+venv/bin/python tests/test_collector.py           # poll rows and API-key redaction
+node tests/test_frontend.js                       # frontend rendering checks; requires Node.js
+venv/bin/python -m pytest tests/                  # also works if pytest is installed
 ```
 
-All pipeline tests and the availability suite must pass before you hand work back. They generate their own synthetic
-data — no real CSV needed, and they are the fastest way to verify a change.
+Every suite must pass before you hand work back; CI (`.github/workflows/tests.yml`)
+runs them all on pull requests. They generate their own synthetic data — no real
+CSV needed, and they are the fastest way to verify a change.
+
+The characterization test fails when any pipeline number moves. For a refactor,
+that is the point: fix the code, not the fixture. Only after an approved change
+in behaviour, regenerate it with `GYMCAST_UPDATE_GOLDEN=1` and commit the new
+fixture alongside that change.
 
 Do not add pytest as a required dependency; the standalone runner is
 deliberate so the tests run anywhere.
@@ -69,6 +80,8 @@ deliberate so the tests run anywhere.
 | `src/collector.py` | GoBoard poller |
 | `src/serve.py` | Flask API |
 | `src/availability.py` | Schedule classification and expiring current-state evidence |
+| `src/fileio.py` | Atomic writes; every published artifact goes through it |
+| `src/paths.py` | Default file locations; add new artifacts here, not as `../` strings |
 | `tests/test_pipeline.py` | Leakage and skew assertions — the real spec |
 
 ## Do not change casually

@@ -11,7 +11,7 @@ that one code path is the point: the alternative - hand-assembling future rows
 here - is how a serving frame ends up holding a slightly different feature than
 the one the model was fit on, with nothing to raise an error about it.
 
-Usage (run from src/, defaults point at ../models, ../data, ../outputs):
+Usage (defaults point at the repository's models/, data/ and outputs/ directories):
     python predict.py
     python predict.py --model ../models/model.pkl --features ../data/features.csv \
                       --hours-ahead 24 --output ../outputs/predictions.json
@@ -36,6 +36,8 @@ from features import (
     build_supervised_frame,
     regularize_hourly,
 )
+import paths
+from fileio import atomic_write_text
 from train import load_bundle, predict_with
 
 
@@ -117,9 +119,9 @@ def to_website_json(frame: pd.DataFrame, capacity_lookup: dict, hours: dict | No
 
 
 def main(model_path: str, features_path: str, hours_ahead: int, output_path: str,
-         calendar_path: str | None, hours_path: str | None = "../data/facility_hours.json",
-         overrides_path: str | None = "../data/facility_overrides.json",
-         live_path: str | None = "../data/marino_counts.csv"):
+         calendar_path: str | None, hours_path: str | None = str(paths.FACILITY_HOURS),
+         overrides_path: str | None = str(paths.FACILITY_OVERRIDES),
+         live_path: str | None = str(paths.RAW_COUNTS)):
     hours, overrides = load_config(hours_path, overrides_path)
     bundle = load_bundle(model_path)
     panel = regularize_hourly(pd.read_csv(features_path, parse_dates=["hour_bucket"]))
@@ -138,30 +140,30 @@ def main(model_path: str, features_path: str, hours_ahead: int, output_path: str
     result = to_website_json(frame, capacity_lookup, hours, overrides, current)
 
     origins = {loc: timestamp_text(t) for loc, t in latest_origins(panel).items()}
-    with open(output_path, "w") as f:
-        json.dump({
-            "generated_at": now.isoformat(),
-            "availability_timezone": TIMEZONE,
-            "unrecorded_exceptions_possible": True,
-            "current_availability": current,
-            "forecast_origin": origins,
-            "model_trained_through": str(bundle.get("trained_through")),
-            "locations": result,
-        }, f, indent=2)
+    # The API serves this file while the refresh timer rewrites it.
+    atomic_write_text(output_path, json.dumps({
+        "generated_at": now.isoformat(),
+        "availability_timezone": TIMEZONE,
+        "unrecorded_exceptions_possible": True,
+        "current_availability": current,
+        "forecast_origin": origins,
+        "model_trained_through": str(bundle.get("trained_through")),
+        "locations": result,
+    }, indent=2))
 
     print(f"Wrote {hours_ahead}h predictions for {len(result)} locations to {output_path}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="../models/model.pkl")
-    parser.add_argument("--features", default="../data/features.csv")
+    parser.add_argument("--model", default=str(paths.MODEL))
+    parser.add_argument("--features", default=str(paths.FEATURES))
     parser.add_argument("--hours-ahead", type=int, default=24)
-    parser.add_argument("--output", default="../outputs/predictions.json")
-    parser.add_argument("--calendar", default="../data/academic_calendar.csv")
-    parser.add_argument("--facility-hours", default="../data/facility_hours.json")
-    parser.add_argument("--facility-overrides", default="../data/facility_overrides.json")
-    parser.add_argument("--live-observations", default="../data/marino_counts.csv",
+    parser.add_argument("--output", default=str(paths.PREDICTIONS))
+    parser.add_argument("--calendar", default=str(paths.ACADEMIC_CALENDAR))
+    parser.add_argument("--facility-hours", default=str(paths.FACILITY_HOURS))
+    parser.add_argument("--facility-overrides", default=str(paths.FACILITY_OVERRIDES))
+    parser.add_argument("--live-observations", default=str(paths.RAW_COUNTS),
                         help="raw polls for current-hour evidence; pass '' to disable")
     args = parser.parse_args()
 

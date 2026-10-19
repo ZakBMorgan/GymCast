@@ -85,7 +85,9 @@ eligibility check, not a filter removing every missing-origin row. Training
 warns below 14 days of history; weekly features need at least a week.
 
 The bundle stores `model`, `feature_cols`, `category_levels`, `used_lgb`,
-`horizons`, `trained_through`, `n_train_rows`, and `params`. `design_matrix()`
+`horizons`, `trained_through`, `n_train_rows`, and `params`. Bundles saved by
+`train.py` also carry `provenance`: git commit (and whether tracked files were
+modified), Python and library versions, and the features file's SHA-256. `design_matrix()`
 reapplies the training vocabulary: pandas categoricals for LightGBM, fixed
 one-hot columns for sklearn. Unseen categories become missing, represented
 as all-zero indicators in the fallback. Old bundles lacking category metadata
@@ -138,8 +140,15 @@ refresh, and model retraining have separate lifecycles.
 
 ## Current State
 
-_Last updated: 2026-10-09_
+_Last updated: 2026-10-19_
 
+- Production runs collection, a 15-minute refresh, nightly retraining and the
+  API under systemd; see [operations](docs/operations.md).
+- Reliability pass (October 19): every artifact is written atomically through
+  `fileio.py`; collector errors are redacted (the key had leaked into
+  `poll_errors.csv`); the live-status read is ~190x faster; the history API
+  caches per horizon; bundles record provenance. A characterization test and
+  CI guard numeric output, which was verified identical on real data.
 - Collection, hourly panel construction, training, evaluation, prediction, and
   Flask API are implemented. Eleven synthetic pipeline tests cover timezone loading,
   feature leakage, fold
@@ -222,7 +231,7 @@ using artifacts produced under the previous timestamp interpretation.
 
 - Extend evaluation to additional weeks and seasonal changes. Inspect per-horizon
   and per-fold rankings alongside aggregate improvement; the current report still
-  shows overall underprediction (bias -1.04 occupants).
+  shows overall overprediction (aggregate bias +1.76 occupants).
 - The frontend retains all forecast data and hides closed rows by default behind
   a Show closed hours toggle. It displays closed, partial (with scheduled open
   minutes), unknown, and special-hour labels. Quietest-hour highlighting requires
@@ -275,7 +284,8 @@ using artifacts produced under the previous timestamp interpretation.
   not exercised by this visual check.
 - The calendar join works, but `academic_calendar.csv` is header-only. Populate
   known dates and measure whether the feature helps; it is currently `unknown`.
-- No automatic retraining or prediction intervals. Verify and maintain schedule
+- No prediction intervals, and no scheduled evaluation: the model retrains
+  nightly, but the deployed accuracy export dates from October 7. Verify and maintain schedule
   exceptions; the weekly baseline alone does not establish real-time availability.
 - Buckets are labelled at their start; the latest live bucket can be partial.
   Historical evaluation assumes origin-bucket observations are available.
@@ -287,7 +297,7 @@ using artifacts produced under the previous timestamp interpretation.
 
 1. Repeat walk-forward evaluation on later data and inspect coverage and bias.
 2. Populate the academic calendar and evaluate on additional periods.
-3. Connect the v2 frontend to the deployed API and review freshness on live data.
-4. Define completed-hour refresh timing and automate collection supervision,
-   prediction refresh, and retraining as separate jobs.
+3. Schedule `evaluate.py` so the accuracy chart tracks the nightly model.
+4. Define completed-hour refresh timing. Run the services as a non-root user
+   with memory limits (see [operations](docs/operations.md)).
 5. Consider intervals and forecast weather inputs after baseline validation.

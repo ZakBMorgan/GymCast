@@ -218,21 +218,25 @@ def read_live_observations(path: str | None) -> dict:
                             dtype=str)
     except (ValueError, pd.errors.EmptyDataError):
         return {}
-    latest = {}
-    for row in frame.itertuples(index=False):
-        # Raw naive polls are UTC, unlike legacy naive forecast/panel timestamps.
-        raw_stamp = pd.to_datetime(row.timestamp, utc=True, errors="coerce")
-        stamp = None if pd.isna(raw_stamp) else raw_stamp.tz_convert(TIMEZONE)
-        if stamp is None:
-            continue
-        previous = latest.get(row.location_name)
-        if previous is None or stamp >= previous["timestamp"]:
-            flag = str(row.is_open).lower()
-            status = {"true": "open", "1": "open", "false": "closed", "0": "closed"}.get(
-                flag, "unknown"
-            )
-            latest[row.location_name] = {"timestamp": stamp, "status": status}
-    return latest
+    # Parse the whole column at once; a per-row loop took minutes on the droplet
+    # and grows with the append-only file. "mixed" parses each value on its own,
+    # so legacy naive polls (UTC, unlike legacy naive forecast/panel timestamps)
+    # and offset-bearing polls can share the column. Unparseable values are skipped.
+    frame["stamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="coerce",
+                                    format="mixed")
+    frame["order"] = range(len(frame))
+    frame = frame.dropna(subset=["stamp"])
+    # Latest poll per location; on equal timestamps the later row in the file wins.
+    rows = (frame.sort_values(["stamp", "order"])
+            .groupby("location_name", sort=False, dropna=False).tail(1))
+    statuses = {"true": "open", "1": "open", "false": "closed", "0": "closed"}
+    return {
+        row.location_name: {
+            "timestamp": row.stamp.tz_convert(TIMEZONE),
+            "status": statuses.get(str(row.is_open).lower(), "unknown"),
+        }
+        for row in rows.itertuples(index=False)
+    }
 
 
 def current_availability(location: str, hours: dict, overrides: dict,

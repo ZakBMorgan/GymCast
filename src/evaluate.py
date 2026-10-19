@@ -28,7 +28,7 @@ Two rules keep the folds honest:
     hand a baseline a peek at the test period and then conclude the model beat
     it fairly.
 
-Usage (run from src/, defaults point at ../data):
+Usage (defaults point at the repository's data/ directory):
     python evaluate.py
     python evaluate.py --folds 6 --test-days 7 --report-out ../outputs/eval.json
 """
@@ -41,7 +41,9 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
+import paths
 from features import DEFAULT_HORIZONS, TARGET_COL
+from fileio import atomic_write_text
 from train import fit_model, load_supervised, predict_with
 
 
@@ -339,8 +341,7 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
         ],
     }
     if report_out:
-        with open(report_out, "w") as fh:
-            json.dump(report, fh, indent=2)
+        atomic_write_text(report_out, json.dumps(report, indent=2))
         print(f"\nWrote report to {report_out}")
     if predictions_out:
         destination = Path(predictions_out)
@@ -351,17 +352,15 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
             "config": report["config"],
             "rows": scored_rows,
         }
-        # Readers see either the previous complete export or the new complete export.
-        temporary = destination.with_suffix(destination.suffix + ".tmp")
-        temporary.write_text(json.dumps(history, allow_nan=False))
-        temporary.replace(destination)
+        # The API serves this export; readers see the previous or the new one, never part of one.
+        atomic_write_text(str(destination), json.dumps(history, allow_nan=False))
         print(f"Wrote scored walk-forward predictions to {destination}")
     return report
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", default="../data/features.csv")
+    parser.add_argument("--input", default=str(paths.FEATURES))
     parser.add_argument("--folds", type=int, default=4)
     parser.add_argument("--test-days", type=int, default=7,
                         help="length of each test window; also how stale the model "
@@ -372,7 +371,7 @@ if __name__ == "__main__":
     parser.add_argument("--all-hours", action="store_true",
                         help="include hours the gym was closed (default: open hours only)")
     parser.add_argument("--report-out", default=None)
-    parser.add_argument("--predictions-out", default="../outputs/evaluation_predictions.json",
+    parser.add_argument("--predictions-out", default=str(paths.EVALUATION_PREDICTIONS),
                         help="export scored walk-forward rows; pass an empty string to disable")
     args = parser.parse_args()
 

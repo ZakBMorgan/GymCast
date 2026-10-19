@@ -143,6 +143,48 @@ def test_raw_latest_flag_not_hourly_max_or_last_known():
     assert a.read_live_observations(None) == {}
 
 
+def _reference_read_live_observations(path: str) -> dict:
+    """The original row-by-row reader, frozen as the behaviour the fast version must keep."""
+    frame = pd.read_csv(path, usecols=["timestamp", "location_name", "is_open"], dtype=str)
+    latest = {}
+    for row in frame.itertuples(index=False):
+        raw_stamp = pd.to_datetime(row.timestamp, utc=True, errors="coerce")
+        stamp = None if pd.isna(raw_stamp) else raw_stamp.tz_convert(a.TIMEZONE)
+        if stamp is None:
+            continue
+        previous = latest.get(row.location_name)
+        if previous is None or stamp >= previous["timestamp"]:
+            flag = str(row.is_open).lower()
+            status = {"true": "open", "1": "open", "false": "closed", "0": "closed"}.get(
+                flag, "unknown")
+            latest[row.location_name] = {"timestamp": stamp, "status": status}
+    return latest
+
+
+def test_vectorized_live_reader_matches_original_row_loop():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "polls.csv"
+        path.write_text(
+            "timestamp,location_name,is_open\n"
+            "2026-08-06T03:49:59,Cardio,True\n"            # legacy naive poll = UTC
+            "2026-10-19T20:40:00+00:00,Cardio,False\n"
+            "2026-10-19T20:40:00+00:00,Cardio,True\n"      # tie: the later row wins
+            "not-a-time,Cardio,False\n"                    # unparseable: skipped
+            "2026-10-19T16:50:00-04:00,Weights,0\n"        # offset form, later instant
+            "2026-10-19T20:45:00Z,Weights,1\n"             # earlier instant, later row
+            "2026-10-19T20:00:00+00:00,Studio,\n"          # missing flag: unknown
+            "2026-10-19T19:00:00+00:00,Studio,yes\n"
+            ",Pool,True\n"                                 # no timestamp at all: absent
+            "2026-11-01T05:30:00+00:00,DST,TRUE\n"         # 1:30 AM EDT
+            "2026-11-01T06:30:00+00:00,DST,false\n")       # 1:30 AM EST, later
+        fast = a.read_live_observations(str(path))
+        assert fast == _reference_read_live_observations(str(path))
+        assert fast["Cardio"]["status"] == "open"
+        assert fast["Weights"]["status"] == "closed"
+        assert fast["Studio"]["status"] == "unknown" and "Pool" not in fast
+        assert fast["DST"]["timestamp"].isoformat() == "2026-11-01T01:30:00-05:00"
+
+
 def test_json_preserves_predictions_and_all_rows():
     hours, overrides = config()
     frame = pd.DataFrame({"location_name": ["Cardio"] * 3,

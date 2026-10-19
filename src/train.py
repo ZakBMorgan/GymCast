@@ -14,19 +14,25 @@ Training here fits on all available history and reports nothing about accuracy
 on purpose - run evaluate.py for that, since an honest number needs
 walk-forward folds rather than a single lucky holdout.
 
-Usage (run from src/, defaults point at ../data and ../models):
+Usage (defaults point at the repository's data/ and models/ directories):
     python train.py
     python train.py --input ../data/features.csv --model-out ../models/model.pkl
 """
 import argparse
+import hashlib
 import os
 import pickle
+import platform
+import subprocess
 import sys
-import tempfile
+from datetime import datetime, timezone
+from importlib import metadata
 
 import numpy as np
 import pandas as pd
 
+import paths
+from fileio import atomic_write_bytes
 from features import (
     CATEGORICAL_COLS,
     DEFAULT_HORIZONS,
@@ -155,25 +161,9 @@ def predict_with(bundle: dict, df: pd.DataFrame) -> np.ndarray:
 
 
 def save_bundle(bundle: dict, path: str) -> None:
-    directory = os.path.dirname(os.path.abspath(path))
-
-    fd, temp_path = tempfile.mkstemp(
-        prefix=".model-",
-        suffix=".tmp",
-        dir=directory,
-    )
-
-    try:
-        with os.fdopen(fd, "wb") as f:
-            pickle.dump(bundle, f)
-            f.flush()
-            os.fsync(f.fileno())
-
-        os.replace(temp_path, path)
-
-    finally:
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
+    # Serialize fully before touching the file, so a pickling error leaves the
+    # previous model in place for the refresh job.
+    atomic_write_bytes(path, pickle.dumps(bundle))
 
 
 def load_bundle(path: str) -> dict:
@@ -197,6 +187,48 @@ def load_supervised(input_path: str, horizons=DEFAULT_HORIZONS) -> pd.DataFrame:
     return build_supervised_frame(panel, horizons)
 
 
+def git_revision() -> dict | None:
+    """Commit the code was trained from, and whether tracked files differed from it."""
+    def git(*args):
+        # GIT_OPTIONAL_LOCKS=0: `git status` must not rewrite the index of a deployed checkout.
+        return subprocess.run(["git", "-C", str(paths.ROOT), *args], capture_output=True,
+                              text=True, check=True, timeout=10,
+                              env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"}).stdout.strip()
+    try:
+        return {"commit": git("rev-parse", "HEAD"),
+                "dirty": bool(git("status", "--porcelain", "--untracked-files=no"))}
+    except (OSError, subprocess.SubprocessError):
+        return None  # not a checkout, or git missing; the rest of the record still helps
+
+
+def training_provenance(input_path: str, frame: pd.DataFrame) -> dict:
+    """
+    What produced a production bundle: code, library versions and training data.
+
+    A model that starts forecasting badly raises one question first - what
+    changed since the last good one? The bundle can answer it only if it
+    records this at training time.
+    """
+    with open(input_path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    packages = {}
+    for name in ("pandas", "numpy", "scikit-learn", "lightgbm"):
+        try:
+            packages[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            packages[name] = None
+    return {
+        "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "git": git_revision(),
+        "python": platform.python_version(),
+        "packages": packages,
+        "features_file": os.path.abspath(input_path),
+        "features_sha256": digest,
+        "locations": sorted(frame["location_name"].unique().tolist()),
+        "first_target_hour": str(frame["hour_bucket"].min()),
+    }
+
+
 def train_model(input_path: str, model_out: str, horizons=DEFAULT_HORIZONS) -> dict:
     frame = load_supervised(input_path, horizons)
     labelled = frame.dropna(subset=[TARGET_COL])
@@ -215,6 +247,7 @@ def train_model(input_path: str, model_out: str, horizons=DEFAULT_HORIZONS) -> d
         )
 
     bundle = fit_model(labelled)
+    bundle["provenance"] = training_provenance(input_path, labelled)
     save_bundle(bundle, model_out)
 
     print(f"Trained on {bundle['n_train_rows']} (origin, horizon) rows "
@@ -228,8 +261,8 @@ def train_model(input_path: str, model_out: str, horizons=DEFAULT_HORIZONS) -> d
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", default="../data/features.csv")
-    parser.add_argument("--model-out", default="../models/model.pkl")
+    parser.add_argument("--input", default=str(paths.FEATURES))
+    parser.add_argument("--model-out", default=str(paths.MODEL))
     parser.add_argument("--max-horizon", type=int, default=max(DEFAULT_HORIZONS),
                         help="train for forecasts 1..N hours ahead")
     args = parser.parse_args()

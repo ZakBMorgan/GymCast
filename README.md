@@ -97,8 +97,9 @@ independently of that artifact. Prediction applies the saved model to the latest
 observations; evaluation is not a required step between training and prediction.
 
 In production, collection runs continuously while a systemd timer rebuilds the
-hourly features and current forecast every 15 minutes. Retraining remains a
-separate manual process.
+hourly features and current forecast every 15 minutes, and a second timer
+retrains the model nightly at 03:00 New York time. See the
+[operations runbook](docs/operations.md).
 
 One model handles all forecast horizons, using the horizon itself as an input.
 It uses LightGBM when available, with scikit-learn's
@@ -211,8 +212,13 @@ From the repository root:
 venv/bin/python tests/test_pipeline.py
 venv/bin/python tests/test_availability.py
 venv/bin/python tests/test_evaluation_history.py
+venv/bin/python tests/test_characterization.py   # fails if any pipeline number moves
+venv/bin/python tests/test_fileio.py
+venv/bin/python tests/test_collector.py
 node tests/test_frontend.js     # frontend rendering checks; requires Node.js
 ```
+
+CI runs all of them on every pull request.
 
 The pipeline tests generate synthetic occupancy data and cover leakage, fold
 boundaries, category consistency, serving features, and a model smoke test.
@@ -276,7 +282,7 @@ errors. Missing hourly observations remain `NaN`, not zero.
   `predict.py` accept `--calendar PATH` or `--calendar ''` to skip it.
 - **Operations:** collection runs continuously on the production droplet, while
   feature construction and prediction refresh automatically every 15 minutes.
-  Retraining remains a separate manual process.
+  A nightly timer retrains the model; evaluation is still run by hand.
 - **Forecast range:** default training and prediction cover 1–24 hours.
   `train.py --max-horizon N` and `predict.py --hours-ahead N` change that range.
   Prediction warns, but proceeds, beyond the trained range. Seasonal lag inputs
@@ -293,6 +299,7 @@ errors. Missing hourly observations remain `NaN`, not zero.
 | `outputs/` | Generated forecasts and evaluation reports, gitignored |
 | `web/` | Responsive HTML/CSS/JavaScript frontend served by Nginx in production |
 | [Pipeline walkthrough](docs/pipeline_walkthrough.md) | Detailed explanation with examples |
+| [Operations runbook](docs/operations.md) | Production services, deploys, checks, and known risks |
 | [PROJECT.md](PROJECT.md) | Concise architecture, methodology, and current state |
 | [AGENTS.md](AGENTS.md) | Coding conventions and correctness requirements |
 | [CLAUDE.md](CLAUDE.md) | Entry point pointing to the shared agent guidance |
