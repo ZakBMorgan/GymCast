@@ -32,6 +32,8 @@ jobs:
         run: python tests/test_evaluation_history.py
       - name: Collector tests
         run: python tests/test_collector.py
+      - name: Training backend and publishing tests
+        run: python tests/test_training.py
       - name: Atomic write tests
         run: python tests/test_fileio.py
       - name: Characterization test

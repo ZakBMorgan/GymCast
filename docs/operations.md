@@ -37,8 +37,11 @@ chart, dates from 2026-10-07 and does not track the nightly model.
 
 - `/` serves the static frontend from `/var/www/gymcast`, falling back to
   `index.html`.
-- `/api/refresh` returns 403. The refresh timer runs the pipeline directly, so
-  the endpoint is not needed in production.
+- `/api/refresh` returns 403. Gunicorn's app no longer has that route either
+  (it exists only on the development server); the refresh timer runs the
+  pipeline directly. The Nginx block is kept as a second layer.
+- Gunicorn sends no CORS headers. The page and API share one origin, so
+  browsers do not need them.
 - `/api/` proxies to Gunicorn on `127.0.0.1:8000` with `Host`, `X-Real-IP`,
   `X-Forwarded-For` and `X-Forwarded-Proto` headers.
 - Port 80 redirects to HTTPS.
@@ -89,6 +92,21 @@ systemctl start gymcast-train.service     # retrain now
 
 `evaluate.py` refits a model for each fold; on this 1 GB host, run it when the
 train job is not running.
+
+## When the nightly retrain fails
+
+`train.py` exits non-zero, so `systemctl --failed` lists `gymcast-train.service`
+and `journalctl -u gymcast-train` shows why. The serving model is untouched: a
+new model replaces `models/model.pkl` only after it passes validation. There is
+no automatic switch to the sklearn backend.
+
+To roll back a model that trained successfully but forecasts badly:
+
+```bash
+cd /root/gym_predictor/models
+cp model.pkl model.rejected.pkl && cp model.previous.pkl model.pkl
+systemctl start gymcast-refresh.service   # republish forecasts from it
+```
 
 ## Known risks
 

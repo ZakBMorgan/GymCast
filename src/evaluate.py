@@ -44,7 +44,7 @@ import pandas as pd
 import paths
 from features import DEFAULT_HORIZONS, TARGET_COL
 from fileio import atomic_write_text
-from train import fit_model, load_supervised, predict_with
+from train import BACKENDS, fit_model, load_supervised, predict_with, resolve_backend
 
 
 # ---------------------------------------------------------------- baselines
@@ -160,12 +160,13 @@ def score(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
 
 def evaluate_fold(
     train_df: pd.DataFrame, test_df: pd.DataFrame, scored_rows: list | None = None,
+    backend: str | None = None,
 ) -> dict | None:
     """Fit on the fold's training rows, score model and baselines on its test rows."""
     if train_df.empty or test_df.empty:
         return None
 
-    bundle = fit_model(train_df)
+    bundle = fit_model(train_df, backend=backend)
     preds = {"model": predict_with(bundle, test_df)}
     for name, fn in BASELINES.items():
         preds[name] = np.asarray(fn(train_df, test_df), dtype=float)
@@ -287,7 +288,9 @@ def print_report(agg: dict, fold_results: list[dict], open_only: bool) -> None:
 
 def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
         horizons, open_only: bool, report_out: str | None,
-        predictions_out: str | None = None) -> dict | None:
+        predictions_out: str | None = None, backend: str | None = None) -> dict | None:
+    # Fail before any fold work if the requested backend cannot load.
+    backend = resolve_backend(backend)
     frame = load_supervised(input_path, horizons)
     frame = frame.dropna(subset=[TARGET_COL])
 
@@ -315,7 +318,7 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
     for cutoff, test_end in folds:
         train_df, test_df = split_fold(frame, cutoff, test_end)
 
-        fold = evaluate_fold(train_df, test_df, scored_rows)
+        fold = evaluate_fold(train_df, test_df, scored_rows, backend)
         if fold is None:
             print(f"  skipped fold at {cutoff:%Y-%m-%d} (no scorable rows)")
             continue
@@ -333,6 +336,7 @@ def run(input_path: str, n_folds: int, test_days: int, min_train_days: int,
             "folds": len(results), "test_days": test_days,
             "min_train_days": min_train_days, "open_only": open_only,
             "horizons": [int(h) for h in horizons],
+            "backend": backend,
         },
         "aggregate": agg,
         "folds": [
@@ -373,10 +377,15 @@ if __name__ == "__main__":
     parser.add_argument("--report-out", default=None)
     parser.add_argument("--predictions-out", default=str(paths.EVALUATION_PREDICTIONS),
                         help="export scored walk-forward rows; pass an empty string to disable")
+    parser.add_argument("--backend", choices=BACKENDS, default=None,
+                        help="model backend (default: $GYMCAST_BACKEND, else lightgbm)")
     args = parser.parse_args()
 
-    run(
-        args.input, args.folds, args.test_days, args.min_train_days,
-        range(1, args.max_horizon + 1), not args.all_hours, args.report_out,
-        args.predictions_out,
-    )
+    try:
+        run(
+            args.input, args.folds, args.test_days, args.min_train_days,
+            range(1, args.max_horizon + 1), not args.all_hours, args.report_out,
+            args.predictions_out, args.backend,
+        )
+    except ValueError as exc:
+        parser.exit(1, f"evaluate.py: {exc}\n")

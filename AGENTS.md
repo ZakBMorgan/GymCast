@@ -17,8 +17,10 @@ Use `venv/bin/python` explicitly. A bare `python` is not on PATH on the
 maintainer's machine — `python3` or the venv binary.
 
 Without `libomp`, LightGBM imports and then fails to load its shared library.
-`train.py` catches that and falls back to sklearn. This is silent apart from
-the backend line `train.py` prints, so check it before comparing runs.
+Training and evaluation then stop with that error rather than switching
+backends. Install `libomp`, or choose the alternative explicitly with
+`--backend sklearn` or `GYMCAST_BACKEND=sklearn`. The bundle and the evaluation
+report record which backend was used.
 
 ## Running
 
@@ -38,7 +40,8 @@ cd src
 
 The collector sleeps between polls itself; do not schedule overlapping copies.
 Run tests from the repository root. `POST /api/refresh` runs features → predict
-with the saved model; it does not collect or retrain.
+with the saved model; it does not collect or retrain. It and CORS exist only on
+the development server (`python serve.py`); `gunicorn serve:app` serves neither.
 
 Useful flags: `evaluate.py --folds N --test-days N --min-train-days N
 --max-horizon N --all-hours --report-out PATH`; `train.py --max-horizon N`;
@@ -53,6 +56,7 @@ venv/bin/python tests/test_evaluation_history.py  # evaluation export and histor
 venv/bin/python tests/test_characterization.py    # pins numeric output of every stage
 venv/bin/python tests/test_fileio.py              # atomic artifact writes
 venv/bin/python tests/test_collector.py           # poll rows and API-key redaction
+venv/bin/python tests/test_training.py            # explicit backends, model publishing
 node tests/test_frontend.js                       # frontend rendering checks; requires Node.js
 venv/bin/python -m pytest tests/                  # also works if pytest is installed
 ```
@@ -109,7 +113,10 @@ without understanding the reasoning reintroduces bugs no error message reports.
 7. **Keep category levels frozen in the bundle.** LightGBM receives categorical
    columns; sklearn receives fixed one-hot columns. Re-deriving vocabulary at
    prediction time can change category meanings or the input shape.
-8. **Keep the LightGBM guard catching `OSError`,** not just `ImportError`.
+8. **Keep the LightGBM guard catching `OSError`,** not just `ImportError`, and
+   never substitute a backend: `resolve_backend()` raises when the requested
+   one cannot load. A silent fallback trains a different model than the one
+   production was evaluated with.
 9. **Keep `regularize_hourly()` before any shift.** Lags are positional; a
    polling gap otherwise slides "same hour last week" off by an hour.
 
@@ -118,6 +125,9 @@ without understanding the reasoning reintroduces bugs no error message reports.
    from maintained hours/overrides; fresh raw GoBoard flags affect only the
    current hour and exact reporting location. Never extrapolate a live closure.
    Empty overrides mean no known exception, not verified absence of exceptions.
+11. **Publish models only through `publish_bundle()`.** It validates the
+   round-tripped bundle before replacing `model.pkl` and keeps the replaced
+   model as `model.previous.pkl`; a failed retrain must leave serving intact.
 
 Safe to change freely: hyperparameters in `DEFAULT_PARAMS`, report formatting,
 baseline additions, CLI defaults, docs.

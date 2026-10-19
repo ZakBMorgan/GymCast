@@ -102,9 +102,11 @@ retrains the model nightly at 03:00 New York time. See the
 [operations runbook](docs/operations.md).
 
 One model handles all forecast horizons, using the horizon itself as an input.
-It uses LightGBM when available, with scikit-learn's
-`HistGradientBoostingRegressor` as a compatibility fallback. GymCast does not
-train both and automatically choose a winner.
+It uses LightGBM by default; scikit-learn's `HistGradientBoostingRegressor` is
+an alternative chosen explicitly with `--backend sklearn`. GymCast never
+switches backends on its own, and does not train both to choose a winner. A
+retrained model replaces the served one only after it passes validation; the
+replaced model is kept as `models/model.previous.pkl`.
 
 Training and prediction share `build_supervised_frame()` and `design_matrix()`.
 Occupancy features use only observations at or before the forecast origin;
@@ -128,8 +130,9 @@ On macOS, install LightGBM's OpenMP runtime if you want that backend:
 brew install libomp
 ```
 
-If LightGBM cannot import or load its shared library, GymCast uses the sklearn
-fallback. `train.py` prints the backend used. On Windows, use
+If LightGBM cannot import or load its shared library, training stops with that
+error. Install `libomp`, or pass `--backend sklearn` to `train.py` and
+`evaluate.py` (or set `GYMCAST_BACKEND=sklearn`). On Windows, use
 `venv\Scripts\python.exe` in place of `venv/bin/python`.
 
 ### Collect history
@@ -169,7 +172,12 @@ The API runs at `http://localhost:5000`:
 |---|---|
 | `GET /api/predictions` | Reads the saved `outputs/predictions.json`; does not run the model. |
 | `GET /api/evaluation-history?horizon=6` | Reads scored walk-forward history for one horizon; no evaluation runs on request. |
-| `POST /api/refresh` | Rebuilds the hourly panel and predictions using the existing model. |
+| `POST /api/refresh` | Rebuilds the hourly panel and predictions using the existing model. Development server only. |
+
+`python serve.py` also enables CORS, so a page served from another local port
+(for example `cd web && python3 -m http.server 8765`, then open
+`http://localhost:8765`) can call it. Production Gunicorn has neither the refresh
+route nor CORS.
 
 Refresh does not collect observations or retrain. Keep collection running
 separately, and rerun `train.py` when you want to update the learned model.
@@ -215,6 +223,7 @@ venv/bin/python tests/test_evaluation_history.py
 venv/bin/python tests/test_characterization.py   # fails if any pipeline number moves
 venv/bin/python tests/test_fileio.py
 venv/bin/python tests/test_collector.py
+venv/bin/python tests/test_training.py
 node tests/test_frontend.js     # frontend rendering checks; requires Node.js
 ```
 
