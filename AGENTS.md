@@ -47,6 +47,17 @@ Useful flags: `evaluate.py --folds N --test-days N --min-train-days N
 --max-horizon N --all-hours --report-out PATH`; `train.py --max-horizon N`;
 `predict.py --hours-ahead N`. Pass `--calendar ''` to skip the academic calendar.
 
+## Production
+
+- Make changes in this repo only; Zak deploys. Do not run commands on the
+  droplet unless asked, and then only read-only ones (`systemctl status`,
+  `journalctl`, `df -h`).
+- Never restart, stop, enable, or edit services, timers, or files on the server.
+- Never modify, move, or delete collected data, models, or generated outputs,
+  locally or in production.
+- Changes to unit files or deploy steps go through the repo and
+  docs/operations.md.
+
 ## Tests
 
 ```bash
@@ -153,7 +164,8 @@ baseline additions, CLI defaults, docs.
 ## Data realities
 
 - `data/*.csv`, `models/*.pkl`, `outputs/*.json` are gitignored and
-  regenerated. `data/academic_calendar.csv` is committed and header-only.
+  regenerated. `data/academic_calendar.csv` is committed and
+  covers 2026-08-06 to 2026-12-31.
 - Local artifacts now contain weeks of September observations, but fresh clones
   have no collected history. **Develop against the synthetic generator in
   `tests/test_pipeline.py::synthetic_panel`**, not the real CSV.
